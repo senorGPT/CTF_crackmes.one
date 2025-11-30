@@ -27,6 +27,12 @@ crackmes.one/
 - **Status**: ✅ Solved
 - **Solution**: See `illusionxxx - simple crackme/illusionxxx - simple crackme - Solution.pdf`
 
+### plikan - Ez Crackme
+- **Difficulty**: Easy
+- **Author**: plikan
+- **Status**: ✅ Solved
+- **Solution**: See `plikan - Ez Crackme/plikan - Ez Crackme - Solution.pdf`
+
 ## 🚀 Getting Started
 
 1. Navigate to a challenge directory
@@ -44,10 +50,10 @@ crackmes.one/
 ## 🛠️ Tools Used
 
 Common tools for solving these challenges:
-- **Analysis**: PE-bear, Detect It Easy (DiE)
-- **Debuggers**: x64dbg
-- **Disassemblers & Decompilers**: IDA Pro, Ghidra
-- **Dynamic Analysis**: Process Monitor, API Monitor
+- **Analysis**: Detect It Easy (DiE)
+- **Debuggers**: x64dbg, x32dbg
+- **Disassemblers & Decompilers**: IDA Free, Ghidra
+- **Dynamic Analysis**: ProcessHacker, Process Monitor, API Monitor
 
 ## 📚 Resources
 
