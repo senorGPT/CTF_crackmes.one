@@ -15,7 +15,8 @@ crackmes.one/
 │   ├── flag.txt             # The solution flag
 │   ├── zip-password.txt     # Password for the original challenge zip
 │   ├── [challenge].zip      # Original challenge archive
-│   └── [challenge] - Solution.pdf  # Detailed solution write-up
+│   ├── [challenge] - Solution.pdf  # Detailed solution write-up
+│   └── [author]'s [challenge].url  # Shortcut link to challenge page
 └── README.md
 ```
 
