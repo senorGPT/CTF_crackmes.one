@@ -23,16 +23,22 @@ crackmes.one/
 ## 🎯 Challenges
 
 ### illusionxxx - simple crackme
-- **Difficulty**: Simple
+- **Difficulty**: 1.5/6.0
 - **Author**: illusionxxx
 - **Status**: ✅ Solved
 - **Solution**: See `illusionxxx - simple crackme/illusionxxx - simple crackme - Solution.pdf`
 
 ### plikan - Ez Crackme
-- **Difficulty**: Easy
+- **Difficulty**: 1.0/6.0
 - **Author**: plikan
 - **Status**: ✅ Solved
 - **Solution**: See `plikan - Ez Crackme/plikan - Ez Crackme - Solution.pdf`
+
+### vilxd - decode me
+- **Difficulty**: 2.2/6.0
+- **Author**: vilxd
+- **Status**: ✅ Solved
+- **Solution**: See `vilxd - decode me/vilxd - decode me - Solution.pdf`
 
 ## 🚀 Getting Started
 
