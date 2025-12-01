@@ -23,7 +23,7 @@ crackmes.one/
 ## 🎯 Challenges
 
 <details>
-<summary><b>illusionxxx - simple crackme</b> | Difficulty: 1.5/6.0 | ✅ Solved</summary>
+<summary><b>illusionxxx - simple crackme</b> | Difficulty: 1.5/6.0</summary>
 
 - **Difficulty**: 1.5/6.0
 - **Author**: illusionxxx
@@ -35,7 +35,7 @@ crackmes.one/
 </details>
 
 <details>
-<summary><b>plikan - Ez Crackme</b> | Difficulty: 1.0/6.0 | ✅ Solved</summary>
+<summary><b>plikan - Ez Crackme</b> | Difficulty: 1.0/6.0</summary>
 
 - **Difficulty**: 1.0/6.0
 - **Author**: plikan
@@ -47,7 +47,7 @@ crackmes.one/
 </details>
 
 <details>
-<summary><b>vilxd - decode me</b> | Difficulty: 2.2/6.0 | ✅ Solved</summary>
+<summary><b>vilxd - decode me</b> | Difficulty: 2.2/6.0</summary>
 
 - **Difficulty**: 2.2/6.0
 - **Author**: vilxd
