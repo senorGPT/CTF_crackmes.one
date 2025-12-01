@@ -22,26 +22,41 @@ crackmes.one/
 
 ## 🎯 Challenges
 
-### illusionxxx - simple crackme
+<details>
+<summary><b>illusionxxx - simple crackme</b> | Difficulty: 1.5/6.0 | ✅ Solved</summary>
+
 - **Difficulty**: 1.5/6.0
 - **Author**: illusionxxx
 - **Status**: ✅ Solved
 - **Solution**: See `illusionxxx - simple crackme/illusionxxx - simple crackme - Solution.pdf`
 - **Description**: Used x64dbg to follow the string references and the main comparison loop, then analyzed the function that transforms user input. The crackme encodes the input with a per-byte XOR where the key is the length of the string, and compares it to the constant l?xo\r0e`. Reversing this length-based XOR yields the correct key.
+- **Date Solved**: 2025-11-29
 
-### plikan - Ez Crackme
+</details>
+
+<details>
+<summary><b>plikan - Ez Crackme</b> | Difficulty: 1.0/6.0 | ✅ Solved</summary>
+
 - **Difficulty**: 1.0/6.0
 - **Author**: plikan
 - **Status**: ✅ Solved
-- **Solution**: See `plikan - Ez Crackme/plikan - Ez Crackme - Solution.pdf
+- **Solution**: See `plikan - Ez Crackme/plikan - Ez Crackme - Solution.pdf`
 - **Description**: Simple .NET console crackme. I used dnSpy to inspect Main, where the program compares Console.ReadLine() directly against a hard-coded string. The correct password is stored in plaintext, so no encoding or transformation was involved.
+- **Date Solved**: 2025-11-30
 
-### vilxd - decode me
+</details>
+
+<details>
+<summary><b>vilxd - decode me</b> | Difficulty: 2.2/6.0 | ✅ Solved</summary>
+
 - **Difficulty**: 2.2/6.0
 - **Author**: vilxd
 - **Status**: ✅ Solved
 - **Solution**: See `vilxd - decode me/vilxd - decode me - Solution.pdf`
 - **Description**: Used x64dbg to analyze the main function, bypass a simple IsDebuggerPresent anti-debug check, and follow the calls that read, encode, and compare the user input. The program converts each character to a \xHH form using the format string "\\x%02X" and compares against a stored constant, revealing the correct password.
+- **Date Solved**: 2025-12-01
+
+</details>
 
 ## 🚀 Getting Started
 
