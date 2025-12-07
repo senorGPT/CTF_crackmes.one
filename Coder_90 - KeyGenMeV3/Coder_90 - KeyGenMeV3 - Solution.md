@@ -73,17 +73,17 @@ The application is a Win32 GUI crackme with:
 
 I started by loading the PE (Portable Executable) into **CFF Explorer** to sanity-check basic headers and verify that the file did not appear packed, encrypted, or heavily obfuscated.
 
-![][image4]
+![image-20251207005849570](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207005849570.png)
 
 ### 4.2 Imports
 
 I then reviewed the import directory to understand what APIs might be involved in validation, UI, or protection.
 
-![][image5]
+![image-20251207005908486](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207005908486.png)
 
 The most immediately interesting module was **KERNEL32.DLL**. Isn't it always.
 
-![][image6]
+![image-20251207005925578](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207005925578.png)
 
 Even though I noticed functions such as **VirtualProtect**, **VirtualQuery**, and **GetModuleHandleA**, I did not see any obvious signs of anti-debugging in early testing.
 
@@ -103,7 +103,7 @@ Even though I noticed functions such as **VirtualProtect**, **VirtualQuery**, an
 
 I ran the CTF under **x64dbg** and confirmed that the application appears to start normally and run without immediate anti-debug triggers.
 
-![][image7]
+![image-20251207011756760](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207011756760.png)
 
 ### 5.2 String-Driven Entry
 
@@ -116,11 +116,11 @@ I searched for string references within the module for likely anchors:
 - “Failed”
 - “Success”
 
-![][image8]
+![image-20251207011818555](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207011818555.png)
 
 Double-clicking **“Invalid Key”** led me into a block that appears to be part of the success / failure branching.
 
-![][image9]
+![image-20251207011848349](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207011848349.png)
 
 I set a breakpoint just above this block and triggered it via the **“CHECK KEY”** button to step through the surrounding logic.
 
@@ -138,7 +138,7 @@ I encountered a call that resolves to:
 unsigned long strtoul(const char *nptr, char **endptr, int base);
 ```
 
-It seems that it calls `strtoul`, then compares the `EDI` register against the `EAX` register. Which on x86 Windows Calling Convention is the return value from a function, in our case, `strtoul` .
+It seems that it calls `strtoul`, then compares the `EDI` register against the `EAX` register. Which on x86 Windows Calling Convention is the return value from a function - in our case, `strtoul` .
 
 Registers:
 
@@ -221,11 +221,44 @@ Yes! It appears that the `RDI` register that the key is being compared against *
 
 ![image-20251206052348253](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251206052348253.png)
 
+After some playing around, I deduced that there is more code running prior to the code block I have already found.
+
+![image-20251207022616344](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207022616344.png)
+
+Right clicking the desired instruction, then `Find References To` -> `Selected Address`.
+
+![image-20251207022714443](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207022714443.png) 
 
 
-------
 
-## 10. Findings Log (Short)
+There seems to  be a lot going on here. Time to figure it out! Turns out, all I had to do to get here was scroll up a little bit from where first breakpoint...
+
+![image-20251207022807387](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207022807387.png)
+
+
+
+## 10. The New Found Code
+
+Off the bat I notice the hardcoded values that stand out to me; `DEADC0DE` and `55555555`.
+
+![image-20251207023949041](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207023949041.png)
+
+I also mentally note that they are both 8 characters long. Not sure that this matters...
+
+So it seems that encoding function works one character at a time. If the character is even then it takes an even branch, otherwise it takes the odd branch.
+SO, that means this is a loopty-loop, weeee. I assume (and verified) that the loop iteration is dependent on the length of the `Name` input.
+
+![image-20251207062806127](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207062806127.png)
+
+### 10.1 Even Code Case
+
+![image-20251207061607504](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207061607504.png)
+
+`rol edi, 0xC` = left rotate the bits of `EDI` register `0xC` (12) times.
+
+`xor edi, r8d` = 
+
+## 11. Findings Log (Short)
 
 | Step | What I did | What I learned |
 |---|---|---|
@@ -237,9 +270,44 @@ Yes! It appears that the `RDI` register that the key is being compared against *
 
 ---
 
-## 10. Conclusion (WIP)
+## 12. Notes
+
+### 12.1 Name encoding tracking chart
+
+| Name       | `RDI` register during `cmp` instruction |
+| ---------- | --------------------------------------- |
+| helloworld | `00000000AD40C7E8`                      |
+| worldhello | `00000000E3F6C497`                      |
+
+### 12.2 Key encoding tracking chart
+
+| Key        | `RAX` after `strtoul` call |
+| ---------- | -------------------------- |
+| worldhello | `0000000000000000`         |
+| 0123456789 | `00000000FFFFFFFF`         |
+| 012345     | `0000000000012345`         |
+| world      | `0000000000000000`         |
+
+
+
+`helloworld`  in hexadecimal is `0000000113D9EEB0`.
+
+------
+
+## 13. Conclusion (WIP)
 
 This write-up will be expanded as I complete the analysis of the key derivation and validation routine. The presence of `strtoul` suggests a numeric key format, which should narrow the search for transformation logic.
+
+
+
+## 14. New things learned
+
+1. I had an instruction that was being jumped to before my breakpoint. I knew which instruction but did not know where the jump was coming from.
+   Right clicking on the instruction, *Find References To - Selected Address*
+
+   ![image-20251207021757814](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207021757814.png)
+
+   
 
 ---
 
