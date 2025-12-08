@@ -1,4 +1,4 @@
-# KeyGenMe V3 — Reverse Engineering Write-up (WIP)
+# KeyGenMe V3 — Reverse Engineering Write-up
 
 **Crackme:** https://crackmes.one/crackme/691f53d32d267f28f69b7f62  
 **Author:** Coder_90  
@@ -14,8 +14,8 @@
 
 ## Cover Snapshot
 
-> **Status:** Work in progress  
-> **Goal:** Document a clean path from initial recon → locating key-check logic → validation/reversal strategy → bypass discussion.
+> **Status:** Complete  
+> **Goal:** Document a clean path from initial recon → locating key-check logic → validation/reversal strategy → keygen implementation.
 
 ---
 
@@ -27,7 +27,7 @@
 
 This document captures my reverse-engineering process for **KeyGenMe V3**. The target appears to be a simple Win32 GUI application with a Name + Key input and a “CHECK KEY” button.
 
-At the time of this draft, I have:
+I successfully:
 - Performed basic static reconnaissance.
 - Surveyed imports.
 - Confirmed there appears to be no anti-debugging measures (or so I hope).
@@ -45,15 +45,15 @@ The application is a Win32 GUI crackme with:
 
 ### 2.1 UI Screens
 
-#### Regular execution (start-up)
+#### Regular Execution
 
 ![][image1]
 
-#### Wrong answer provided
+#### Wrong Answer Provided
 
 ![][image2]
 
-#### About button pressed
+#### About Button Pressed
 
 ![][image3]
 
@@ -81,15 +81,16 @@ I then reviewed the import directory to understand what APIs might be involved i
 
 ![image-20251207005908486](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207005908486.png)
 
-The most immediately interesting module was **KERNEL32.DLL**. Isn't it always.
+Jumping into the most familiar and interesting module, **KERNEL32.DLL**.
 
 ![image-20251207005925578](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207005925578.png)
 
-Even though I noticed functions such as **VirtualProtect**, **VirtualQuery**, and **GetModuleHandleA**, I did not see any obvious signs of anti-debugging in early testing.
+Even though I noticed functions such as **VirtualProtect**, **VirtualQuery**, and **GetModuleHandleA**, I did not see any obvious or clear signs of anti-debugging.
 
 ### 4.3 Early Hypotheses
 
 **What I’ve gathered thus far:**
+
 1. Simple Win32 GUI with Name + Key + “CHECK KEY”.  
 2. Message box caption: Failed, text: Invalid Key.  
 3. Probably no anti-debugging protection, hopefully...  
@@ -101,7 +102,7 @@ Even though I noticed functions such as **VirtualProtect**, **VirtualQuery**, an
 
 ### 5.1 Baseline Run
 
-I ran the CTF under **x64dbg** and confirmed that the application appears to start normally and run without immediate anti-debug triggers.
+I ran the CTF under **x64dbg** and confirmed that the application appears to start normally and run without any anti-debug triggers.
 
 ![image-20251207011756760](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207011756760.png)
 
@@ -118,7 +119,7 @@ I searched for string references within the module for likely anchors:
 
 ![image-20251207011818555](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207011818555.png)
 
-Double-clicking **“Invalid Key”** led me into a block that appears to be part of the success / failure branching.
+Double-clicking `Invalid Key` led me into a block that appears to be part of the success & failure branching.
 
 ![image-20251207011848349](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207011848349.png)
 
@@ -166,7 +167,7 @@ Hitting `CHECK KEY` and breaking at my breakpoint I see the following register v
 
 `0xFFFFFFFF` (4294967295) is the classic `strtoul` overflow/error return (ULONG_MAX). Which is definitely strange because I am `86.798%` sure that `0123456789` should *NOT* overflow in base `10`.
 
-Here is where I realized my poopy butt brain betrayed me a bit because it is in fact not base `10`.
+Here I realized my mistake... because it is in fact not base `10`.
 It's loading `0x10` into the `R8` register which is hexadecimal for `16`... So that means the actually base is `16`.
 Regardless, I don't think that input should be overflowing in either base.
 
@@ -182,20 +183,20 @@ Everything appears to be legit. Back to the drawing board.
 
 ## 7. Drawing Board
 
-So, what I've learned here is; The key is meant to be a base-16 string, not an alphanumeric phrase. But obviously, this doesn't appear to be true either *OR* I am missing something.
+So, what I've learned here is; The key is meant to be a base-16 string, not an alphanumeric phrase. But obviously, this doesn't appear to be true *OR* I am missing something.
 
 The two only two roads that I can see currently are:
 
 1. Input a smaller number.
    A signed 32 bit integer has a maximum value of `2,147,483,647` whilst an unsigned long 32bit integer has a maximum value of `4,294,967,295`.
    My input of `0123456789` translates to a decimal value of `4,886,718,345`. That's just a bit above both.
-2. Maybe there is some trickery involved that I am not seeing and the actual base being used is base `2`. This would explain the overflow/error return. Or maybe the number is just too large which is causing the overflow.
+2. Maybe there is some trickery involved that I am not seeing and the actual base being used is base `2`. This would explain the overflow/error return. Or maybe again, the number is just too large which is causing the overflow.
 
 I also started to wonder how the `Name` field plays into this, maybe that is how the `RDI` register is being set?
 
 ------
 
-## 8. Inputting a smaller number
+## 8. Inputting a Smaller Number
 
 Inputting `012345` into the `Key` field yields `RAX` register being `0000000000012345` after the `strtoul` call.
 
@@ -206,7 +207,13 @@ My next attempt is to input `world` as the key...
 
 ![image-20251206052844234](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251206052844234.png)
 
- and the result of `RAX` register is `0000000000000000` (during the `cmp edi, eax` instruction).
+ and the result of `EAX` register is `00000000` (during the `cmp edi, eax` instruction).
+
+### 8.1 Post Solution Conclusion
+
+Reading back through this write-up it became clear to me why as to why I was having so many issues during reverse engineering these assembly instructions. The hint was that it was converting it with base 16 (hexadecimal) and storing it in the EAX register.
+Meaning, it had a maximum width of 8 characters long (8 bytes / 32 bits) and only accepted values `0,1,2,3,4,5,6,7,8,9,A,B,C,D,E,F`. 
+Hence why `world` caused `EAX` register to be `00000000` (characters `w, o, r, and l` are not valid base 16 values).
 
 ---
 
@@ -231,7 +238,8 @@ Right clicking the desired instruction, then `Find References To` -> `Selected A
 
 
 
-There seems to  be a lot going on here. Time to figure it out! Turns out, all I had to do to get here was scroll up a little bit from where first breakpoint...
+There seems to  be a lot going on here. Time to figure it out!
+On an unrelated note, it turns out all I had to do to get here was scroll up a little bit from where first breakpoint...
 
 ![image-20251207022807387](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207022807387.png)
 
@@ -245,8 +253,9 @@ Off the bat I notice the hardcoded values that stand out to me; `DEADC0DE` and `
 
 I also mentally note that they are both 8 characters long. Not sure that this matters...
 
-So it seems that encoding function works one character at a time. If the character is even then it takes an even branch, otherwise it takes the odd branch.
-SO, that means this is a loopty-loop, weeee. I assume (and verified) that the loop iteration is dependent on the length of the `Name` input.
+So it seems that the encoding function works one character at a time.
+If the character is even then it takes an even branch, otherwise it takes the odd branch.
+SO, this indicates a loop structure.... I assume (and verified) that the loop iteration is dependent on the length of the `Name` input.
 
 ![image-20251207062806127](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207062806127.png)
 
@@ -258,16 +267,17 @@ Which is then followed by a consistent transformation.
 
 ![image-20251207183137399](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207183137399.png)
 
-The end result is the key value that it is checking for.
-To test this, let's try to input `AD40C7E8` as the `Key` for the `Name` = `helloworld`.
+The end result is the key value that it is being compared against from the `Key` input.
+
+To test this, let's try to input `AD40C7E8` as the `Key` for `Name` = `helloworld`.
 
 ![image-20251207183301054](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207183301054.png)
 
 Very nice! This means that I am on the right track.
 
-## 11. Writing the key generator - Reversing the transformation logic
+## 11. Writing the Key Generator - Reversing the Transformation Logic
 
-The first thing that I did was whip up some python code to mimic some assembly instructions that I noticed were being used; `rol, neg, shl, imul`:
+The first thing that I did was whip up some Python code to mimic the assembly instructions that I noticed were being used; `rol, neg, shl, imul`:
 
 ### 11.1 utils.py
 
@@ -340,7 +350,7 @@ def rol(value: int, shift: int, width: int = 32) -> int:
     return ((value << shift) | (value >> (width - shift))) & mask
 ```
 
-If any of this doesn't click at first, don't worry, it didn't for me either. Here is a broken down explanation of the `rol` function implementation that should help break down this code.
+If any of this doesn't click at first, don't worry, it didn't for me either. Here is a broken down explanation of the `rol` function implementation that should help understanding the code.
 
 ```python
 def rol(value: int, shift: int, width: int = 32) -> int:
@@ -370,16 +380,16 @@ def rol(value: int, shift: int, width: int = 32) -> int:
     return ((value << shift) | (value >> (width - shift))) & mask
 ```
 
-Hopefully this helps clear things up a little bit.
+Hopefully that helps clear things up a little bit.
 
 ### 11.2 keygen.py
 
-I then put my effort into decoding the even / odd code branches.
+I then put my effort into decoding the even and odd code branches.
 Depending on the input characters, the code would either branch to an even transformation or an odd transformation.
 IE: `h` = `0x68` = `EVEN`.
 
 After the unique even/odd transformation, followed a transformation that both code paths took.
-Finally, there was a constant transformation regardless of the user input `Name`.
+Finally, there was a constant transformation regardless of the user input `Name` that happened after the loop encoding.
 
 The even and odd code branches each only had three unique transformations.
 
@@ -392,7 +402,7 @@ CONST_2 = 0xDEADC0DE
 
 
 
-#### 11.2.1 Even transformation
+#### 11.2.1 Even Transformation
 
 ![image-20251207183833555](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207183833555.png)
 
@@ -410,7 +420,7 @@ def mix_even(char, acc, seed, index, rax):                  # keygenme 0x7FF7776
 
 
 
-#### 11.2.2 Odd transformation
+#### 11.2.2 Odd Transformation
 
 ![image-20251207183904127](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207183904127.png)
 
@@ -428,9 +438,9 @@ def mix_odd(char, acc, seed, index, rax):                   # keygenme 0x7FF7776
 
 
 
-#### 11.2.3 Common transformation
+#### 11.2.3 Common Transformation
 
-After each unique branch (even/odd) both the branches then use the same logic for the rest of the transformation.
+After each unique branch (even/odd), the branches then use the same logic for the rest of the transformation.
 
 ![image-20251207184015626](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207184015626.png)
 
@@ -448,9 +458,9 @@ def mix_both(acc, seed, index, rax):                        # keygenme 0x7FF7776
 
 
 
-#### 11.2.4 Constant transformation
+#### 11.2.4 Constant Transformation
 
-Which is then all followed by a constant transformation which is *NOT* dependent on the user input `Name` field.
+Which is then all followed by a constant transformation which is *NOT* dependent on the user input `Name` field. This final transformation only happens *AFTER* the transformation loop exits.
 
 ![image-20251207184248706](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207184248706.png)
 
@@ -470,7 +480,7 @@ def encode_name_input_part_two():
     return edi, ecx
 ```
 
-#### 11.2.5 Putting it all together
+#### 11.2.5 Putting It All Together
 
 ```python
 import utils
@@ -516,8 +526,8 @@ def mix_odd(char, acc, seed, index, rax):                   # keygenme 0x7FF7776
 def encode_name_input():                                    # keygen.0x7FF777641D0D
     rax = utils.mask(len(NAME_INPUT))                       # call <JMP.&strlen>
     rax = utils.neg(rax)                                    # neg eax
-    acc = CONST_1                                           # mov ecx, DEADC0DE
-    seed = CONST_2                                          # mov edi, 55555555
+    acc = CONST_1                                           # mov edi, 55555555
+    seed = CONST_2                                          # mov ecx, DEADC0DE
 
     # loop logic
     for index, char in enumerate(NAME_INPUT):               # movzx r8d, r8b
@@ -583,35 +593,37 @@ To use the key generator, there are two options:
 
 ![image-20251207185950280](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207185950280.png)
 
+3. Repeat steps 1) *OR* 2) with executable `KeyGenMeV3 - keygen.exe`.
+
 ---
 
-## 12. Trying out different `Name` inputs
+## 12. Trying Out Different `Name` Inputs
 
 Time to have some fun and bask in the hard work by testing out different `Name` inputs to ensure our key generator is 100%.
 
-## 12.1 `senorgpt`
+### 12.1 `senorgpt`
 
 ![image-20251207190303855](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207190303855.png)
 
 ![image-20251207190350873](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207190350873.png)
 
-## 12.2 `crackmes.one`
+### 12.2 `crackmes.one`
 
 ![image-20251207190531572](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207190531572.png)
 
 ![image-20251207190544558](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207190544558.png)
 
-## 12.3 `Coder_90`
+### 12.3 `Coder_90`
 
 ![image-20251207190658188](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207190658188.png)
 
 ![image-20251207190729449](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207190729449.png)
 
-Amazing! 😍
+All test cases passed successfully! 😍
 
 ------
 
-# 13. Turning it into an executable
+## 13. Turning it Into an Executable
 
 I decided to spruce it up a bit more, turned it into an executable as well as copied the `Key` value into the clipboard for Q.O.L. (Quality of Life) purposes.
 
@@ -625,23 +637,183 @@ Running the executable via command line arguements:
 
 ![image-20251207192354452](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207192354452.png)
 
-## 13. Conclusion (WIP)
+## 14. Conclusion
 
-This write-up will be expanded as I complete the analysis of the key derivation and validation routine. The presence of `strtoul` suggests a numeric key format, which should narrow the search for transformation logic.
+This reverse engineering journey through **KeyGenMe V3** provided an excellent opportunity to practice both static and dynamic analysis techniques on a Windows x86-64 binary. The crackme presented an interesting algorithmic challenge that required careful tracing of execution flow and understanding of low-level bit manipulation operations.
+
+It also happened to be my first key generator, which is always exciting.
+
+### 14.1 Key Findings
+
+The validation algorithm follows a structured approach:
+
+1. **Input Processing**: The crackme accepts two inputs—a `Name` and a `Key`. The Key is parsed using `strtoul`.
+
+2. **Name Transformation**: The `Name` input undergoes a complex transformation process:
+   - Each character is processed based on whether its ASCII value is even or odd
+   - **Even characters** (`h = 0x68`): Use `ROL` by `0xC`, `XOR` with character, then `add 0x90F01234`
+   - **Odd characters**: Use `ROL` by `0x1D`, `add` character, then `add 0xE5D4C3B3`
+   - Both paths converge to a common transformation involving seed manipulation
+   - A final constant transformation applies regardless of input, incorporating the `Name` length squared
+
+3. **Key Validation**: The transformed `Name` value is compared against the parsed `Key` value. If they match, access is granted.
+
+4. **Algorithm Implementation**: The solution required implementing several x86 assembly instruction equivalents in Python:
+   - `ROL` (Rotate Left) for circular bit rotation
+   - `SHL` (Shift Left) for logical bit shifting
+   - `IMUL` (Signed Multiply) with proper two's complement handling
+   - `NEG` (Negate) for two's complement negation
+   - Bit masking operations to enforce 32-bit register width
+
+### 14.2 Solution Approach
+
+The keygen implementation (`keygen.py`) successfully replicates the exact transformation logic found in the binary:
+- Mimics the even & odd branching logic
+- Applies the same constants and transformations
+- Produces valid keys for any given `Name` input
+- Includes both interactive and command-line interfaces
+
+The complete solution, including the keygen implementation is available in the `keygen/` directory and successfully generates valid keys for any `Name` input.
+
+### 14.3 What Made This Crackme Interesting/Challenging
+
+Several aspects of this crackme made it both interesting and educational:
+
+**1. The Base-16 Red Herring**
+Initially, discovering that the key was parsed as base-16 (hexadecimal) seemed straightforward, but the overflow behavior with `strtoul` created confusion.
+
+**2. The Even/Odd Branching Logic**
+The algorithm's use of character parity (even/odd ASCII values) to determine transformation paths was clever. This created a non-linear mapping where similar characters could produce vastly different intermediate values.
+
+**3. Complex Bit Manipulation**
+The heavy reliance on bit rotation operations (`ROL` by 0xC and 0x1D) required understanding how circular bit operations work and how to implement them correctly in high-level languages. The combination of rotations, XORs, and additions created a mixing function that was non-trivial to reverse without understanding the exact sequence.
+
+**4. The Two-Phase Transformation**
+The algorithm's structure—first processing each character with even/odd branching, then applying a constant transformation based on the Name length—meant that simply understanding one part wasn't enough. The final transformation incorporating the length squared added another layer that needed to be discovered and replicated.
+
+**5. First Keygen Experience**
+As my first keygen implementation, this crackme provided an excellent learning opportunity. It wasn't so difficult that I found it to be discouraging, but still complex enough to require careful attention to detail and investment of quite a bit of time.
+The careful attention to detail really shined when translating the assembly operations to Python. Maintaining exact bit-level precision was something new for me.
+
+### 14.4 Lessons Reinforced
+
+This crackme taught and reinforced several important reverse engineering principles:
+
+#### 14.4.1 Start with String References
+
+Using string-driven analysis ("Invalid Key", "Access Granted!") provided immediate entry points into the validation logic.
+
+#### 14.4.2 Dynamic Analysis Complements Static Analysis
+
+While static analysis (CFF Explorer) helped understand the binary structure, dynamic analysis (x64dbg) was essential for understanding the actual algorithm flow. Watching register values change in real-time and tracing the execution path made the transformation logic much clearer.
+
+#### 14.4.3 Understanding Calling Conventions
+
+Recognizing that `strtoul` follows the x64 calling convention (RCX, RDX, R8 for parameters, RAX for return) helped interpret the assembly correctly. Fundamental knowledge for understanding how functions are called and how to trace their parameters and return values.
+
+#### 14.4.4 Bit-Level Precision Matters
+
+When implementing the keygen, every bit operation had to be exact. Understanding two's complement arithmetic, proper masking for 32-bit operations, and the difference between shift and rotate operations was crucial. Small errors in bit manipulation would produce incorrect keys, usually due to a failure of masking to the correct width during certain operations.
+
+#### 14.4.5 Document as You Go
+
+Keeping track of register values, transformation constants, and code addresses throughout the analysis made it much easier to piece together the complete algorithm later. Screenshots and notes were invaluable when reconstructing the logic.
+
+#### 14.4.6 The Value of Stepping Back
+
+When stuck on an issue, taking a step back and reconsidering the assumptions and approach. Taking a step back lets the mind calm down and rest.
+
+#### 14.4.7 Reverse Engineering is Iterative
+
+The process wasn't linear, it involved going back and forth between different parts of the assembly instructions, forming hypotheses, testing them, and refining understanding. At first I thought that I was incapable as I did not fully understand what I was looking at. But with due time and effort it all came together into a clear picture.
 
 
 
-## 14. New things learned
+## 15. New things learned
 
-1. I had an instruction that was being jumped to before my breakpoint. I knew which instruction, but did not know where the jump was coming from.
-   Right clicking on the instruction, *Find References To - Selected Address*
-   will show you any references to that address.
+### 15.1 Finding References to a Selected Address in x64dbg
 
-   ![image-20251207021757814](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207021757814.png)
+I had an instruction that was being jumped to before my breakpoint. I knew which instruction, but did not know where the jump was coming from.
+Right clicking on the instruction, *Find References To - Selected Address*
+will show you any references to that address.
 
-2.  Bit shifting / rotating. (EXPAND ON THIS)
+![image-20251207021757814](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207021757814.png)
 
-   
+### 15.2 Bit Shifting & Rotating
+
+Understanding bit shifting and rotating operations is crucial for reverse engineering, especially when dealing with cryptographic algorithms, hash functions, or obfuscated code. These operations are fundamental building blocks in many algorithms.
+
+#### 15.2.1 Bit Shifting
+
+**Left Shift (`<<` or `SHL`):**
+- Moves all bits to the left by a specified number of positions
+- Bits that "fall off" the left side are discarded
+- Zeros are filled in from the right
+- Mathematically equivalent to multiplying by 2^shift (for unsigned values)
+
+**Example (8-bit):**
+```
+Original:  1011 0100 (0xB4 = 180)
+SHL by 1:  0110 1000 (0x68 = 104)  ← leftmost bit lost, 0 filled on right
+SHL by 2:  1101 0000 (0xD0 = 208)  ← two leftmost bits lost
+```
+
+**Right Shift (`>>` or `SHR` for logical, `SAR` for arithmetic):**
+- Moves all bits to the right by a specified number of positions
+- Bits that "fall off" the right side are discarded
+- For logical shift: zeros are filled from the left
+- For arithmetic shift: sign bit is preserved (for signed numbers)
+- Mathematically equivalent to dividing by 2^shift (for unsigned values)
+
+**Example (8-bit logical right shift):**
+```
+Original:  1011 0100 (0xB4 = 180)
+SHR by 1:  0101 1010 (0x5A = 90)   ← rightmost bit lost, 0 filled on left
+SHR by 2:  0010 1101 (0x2D = 45)   ← two rightmost bits lost
+```
+
+#### 15.2.2 Bit Rotation
+
+**Rotate Left (`ROL`):**
+- Similar to left shift, but bits that "fall off" the left side wrap around to the right
+- No bits are lost—all bits are preserved, just repositioned
+- The operation is circular
+
+**Example (8-bit ROL by 3):**
+```
+Original:  1011 0100 (0xB4)
+ROL by 3:  1010 0101 (0xA5)
+
+Step-by-step:
+1. Shift left by 3:  0100 0000 (bits 101 fell off)
+2. Wrap around:      0000 0101 (the 101 bits)
+3. Combine:         0100 0000 | 0000 0101 = 0100 0101
+```
+
+**Rotate Right (`ROR`):**
+- Similar to right shift, but bits that "fall off" the right side wrap around to the left
+- Again, all bits are preserved in a circular fashion
+
+**Example (8-bit ROR by 2):**
+```
+Original:  1011 0100 (0xB4)
+ROR by 2:  0010 1101 (0x2D)
+
+Step-by-step:
+1. Shift right by 2:  0010 1101 (bits 00 fell off)
+2. Wrap around:       0100 0000 (the 00 bits)
+3. Combine:          0010 1101 | 0100 0000 = 0110 1101
+```
+
+#### 15.2.3 Why These Operations Matter
+
+In this crackme, bit rotation (specifically `ROL`) is used extensively:
+- **Even path**: `ROL(acc, 0xC)` - rotates the accumulator left by 12 bits
+- **Odd path**: `ROL(acc, 0x1D)` - rotates the accumulator left by 29 bits
+
+These rotations serve several purposes:
+1. **Diffusion**: Spreads the influence of each input bit across multiple output bit positions
+2. **Non-linearity**: Makes the transformation harder to reverse without knowing the exact operations
 
 ---
 

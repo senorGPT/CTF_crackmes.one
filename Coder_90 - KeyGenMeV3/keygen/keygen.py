@@ -40,14 +40,14 @@ def mix_odd(char, acc, seed, index, rax):                   # keygenme 0x7FF7776
     return acc, seed
 
 
-def encode_name_input(name_input):                         # keygen.0x7FF777641D0D
-    rax = utils.mask(len(name_input))                      # call <JMP.&strlen>
+def encode_name_input(name_input):                          # keygen.0x7FF777641D0D
+    rax = utils.mask(len(name_input))                       # call <JMP.&strlen>
     rax = utils.neg(rax)                                    # neg eax
-    acc = CONST_1                                           # mov ecx, DEADC0DE
-    seed = CONST_2                                          # mov edi, 55555555
+    acc = CONST_1                                           # mov edi, 55555555
+    seed = CONST_2                                          # mov ecx, DEADC0DE
 
     # loop logic
-    for index, char in enumerate(name_input):              # movzx r8d, r8b
+    for index, char in enumerate(name_input):          # movzx r8d, r8b
         if (ord(char) % 2 == 0):                            # test r8b, 1
             acc, seed = mix_even(                           # je keygenme.7FF777641CE0
                 ord(char), acc, seed, index, rax
