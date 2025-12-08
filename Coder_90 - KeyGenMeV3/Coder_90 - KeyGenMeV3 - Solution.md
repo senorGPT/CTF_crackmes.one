@@ -250,49 +250,380 @@ SO, that means this is a loopty-loop, weeee. I assume (and verified) that the lo
 
 ![image-20251207062806127](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207062806127.png)
 
-### 10.1 Even Code Case
+This code portion seems to be in charge on encoding the `Name` input per each character.
 
 ![image-20251207061607504](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207061607504.png)
 
-`rol edi, 0xC` = left rotate the bits of `EDI` register `0xC` (12) times.
+Which is then followed by a consistent transformation.
 
-`xor edi, r8d` = 
+![image-20251207183137399](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207183137399.png)
 
-## 11. Findings Log (Short)
+The end result is the key value that it is checking for.
+To test this, let's try to input `AD40C7E8` as the `Key` for the `Name` = `helloworld`.
 
-| Step | What I did | What I learned |
-|---|---|---|
-| 1 | Checked headers | No obvious packing/obfuscation |
-| 2 | Reviewed imports | Some memory-related APIs present |
-| 3 | Ran under debugger | No immediate anti-debug behavior |
-| 4 | String references | Located likely failure/success paths |
-| 5 | Broke on key check | Observed `strtoul` usage |
+![image-20251207183301054](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207183301054.png)
+
+Very nice! This means that I am on the right track.
+
+## 11. Writing the key generator - Reversing the transformation logic
+
+The first thing that I did was whip up some python code to mimic some assembly instructions that I noticed were being used; `rol, neg, shl, imul`:
+
+### 11.1 utils.py
+
+```python
+def mask(value: int, width: int = 32) -> int:
+    """
+    Mask value to fit within a width-bit word.
+    Returns the low 'width' bits of value, truncating higher bits.
+    """
+    _mask = (1 << width) - 1
+    return value & _mask
+
+def to_signed(x: int, width: int) -> int:
+    """
+    Convert unsigned value to signed within a fixed bit width.
+    Interprets the value as two's complement signed integer.
+    """
+    x = mask(x, width)
+    sign = 1 << (width - 1)
+    return x - (1 << width) if (x & sign) else x
+
+
+def to_unsigned(x: int, width: int) -> int:
+    """
+    Convert value to unsigned within a fixed bit width.
+    Returns the low 'width' bits, treating as unsigned.
+    """
+    return mask(x, width)
+
+
+def imul_low(a: int, b: int, width: int = 32) -> int:
+    """
+    Simulate 2/3-operand IMUL:
+    result = low 'width' bits of (signed(a) * signed(b))
+    """
+    sa = to_signed(a, width)
+    sb = to_signed(b, width)
+    prod = sa * sb
+    return to_unsigned(prod, width)
+
+
+def neg(value: int, width: int = 32) -> int:
+    """
+    Two's complement negation within a fixed bit width.
+    Equivalent to x86 NEG on a width-bit register.
+    """
+    mask = (1 << width) - 1
+    value &= mask
+    return (-value) & mask   # same as (0 - value) & mask
+
+
+def shl(value: int, shift: int, width: int = 32) -> int:
+    """
+    Shift-left value by shift within a width-bit word.
+    Equivalent to x86 SHL on a width-bit register.
+    """
+    mask = (1 << width) - 1
+    return (value << shift) & mask
+
+
+def rol(value: int, shift: int, width: int = 32) -> int:
+    """Rotate-left value by shift within a width-bit word."""
+    mask = (1 << width) - 1
+
+    shift %= width
+    if shift == 0:
+        return value & mask
+
+    value &= mask
+    return ((value << shift) | (value >> (width - shift))) & mask
+```
+
+If any of this doesn't click at first, don't worry, it didn't for me either. Here is a broken down explanation of the `rol` function implementation that should help break down this code.
+
+```python
+def rol(value: int, shift: int, width: int = 32) -> int:
+    """Rotate-left value by shift within a width-bit word."""
+    # shift 0001 to the left by `width` and then subtract 1 to obtain a hex value of OxF* where F is repeated `width` amount
+    # IE:   = 0001 << 32
+    #       = 1 0000 0000 0000 0000 0000 0000 0000 0000
+    # -1    = 1111 1111 1111 1111 1111 1111 1111 1111
+    # a mask is usually a number with 1s where you want to keep bits
+    mask = (1 << width) - 1
+
+    # rotating by the width (or any multiple of it) does nothing
+    # also guarantees 0 <= shift < width
+    shift %= width
+    if shift == 0:
+        # enforce width-bit register
+        return value & mask
+
+    # enforce width-bit register
+    value &= mask
+
+    # Standard rotate-left: (value << shift) | (value >> (width - shift))
+    # (value << shift) - left rotate the bits by `shift` amount
+    # (value >> (width - shift))) - grab the bits that would `fall off` the left side
+    # OR used to clean combine left shifted main body and wrapped around bits
+    # mask the final result to ensure 32-bit output
+    return ((value << shift) | (value >> (width - shift))) & mask
+```
+
+Hopefully this helps clear things up a little bit.
+
+### 11.2 keygen.py
+
+I then put my effort into decoding the even / odd code branches.
+Depending on the input characters, the code would either branch to an even transformation or an odd transformation.
+IE: `h` = `0x68` = `EVEN`.
+
+After the unique even/odd transformation, followed a transformation that both code paths took.
+Finally, there was a constant transformation regardless of the user input `Name`.
+
+The even and odd code branches each only had three unique transformations.
+
+#### 11.2.0 Constants
+
+```python
+CONST_1 = 0x55555555
+CONST_2 = 0xDEADC0DE
+```
+
+
+
+#### 11.2.1 Even transformation
+
+![image-20251207183833555](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207183833555.png)
+
+```python
+def mix_even(char, acc, seed, index, rax):                  # keygenme 0x7FF777641CE0
+    acc = utils.rol(acc, 0xC)                               # rol edi, C
+    acc ^= char                                             # xor edi, r8d
+    acc += 0x90F01234                                       # add edi, 0x90F01234 (7FF777641CE6)
+
+    acc = utils.mask(acc)
+
+    acc, seed = mix_both(acc, seed, index, rax)             # 7FF777641CEC
+    return acc, seed
+```
+
+
+
+#### 11.2.2 Odd transformation
+
+![image-20251207183904127](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207183904127.png)
+
+```python
+def mix_odd(char, acc, seed, index, rax):                   # keygenme 0x7FF777641D17
+    acc = utils.rol(acc, 0x1D)                              # rol edi, 0x1D
+    acc += char                                             # add edi, r8d
+    acc += 0xE5D4C3B3                                       # add edi, 0xE5D4C3B3
+
+    acc = utils.mask(acc)
+
+    acc, seed = mix_both(acc, seed, index, rax)             # jmp keygenme.7FF777641CEC
+    return acc, seed
+```
+
+
+
+#### 11.2.3 Common transformation
+
+After each unique branch (even/odd) both the branches then use the same logic for the rest of the transformation.
+
+![image-20251207184015626](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207184015626.png)
+
+```python
+def mix_both(acc, seed, index, rax):                        # keygenme 0x7FF777641CEC
+    r8 = seed                                               # mov r8d, ecx
+    r8 += index                                             # add r8d, edx
+
+    seed = utils.mask(r8 + rax)                             # lea ecx, qword ptr ds:[r8+rax]
+    seed ^= r8                                              # xor ecx, r8d
+    acc ^= seed                                             # xor edi, ecx
+
+    return acc, seed
+```
+
+
+
+#### 11.2.4 Constant transformation
+
+Which is then all followed by a constant transformation which is *NOT* dependent on the user input `Name` field.
+
+![image-20251207184248706](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207184248706.png)
+
+```python
+def encode_name_input_part_two():
+    edi, ecx = encode_name_input()                          # 7FF777641D0D
+
+    edx = utils.imul_low(len(NAME_INPUT), len(NAME_INPUT))  # imul edx, edx
+    eax = edx                                               # mov eax, edx
+    eax = utils.shl(eax, 8)                                 # shl eax, 0x08
+    eax = utils.mask(eax - edx)                             # sub eax, edx
+
+    edi = utils.rol(edi, 0x1D)                              # rol edi, 1D
+    edi = utils.mask(edi + ecx)                             # add edi, ecx
+    edi = utils.mask(edi ^ eax)                             # xor edi, eax
+
+    return edi, ecx
+```
+
+#### 11.2.5 Putting it all together
+
+```python
+import utils
+
+CONST_1 = 0x55555555
+CONST_2 = 0xDEADC0DE
+
+NAME_INPUT = "helloworld" 
+
+def mix_even(char, acc, seed, index, rax):                  # keygenme 0x7FF777641CE0
+    acc = utils.rol(acc, 0xC)                               # rol edi, C
+    acc ^= char                                             # xor edi, r8d
+    acc += 0x90F01234                                       # add edi, 0x90F01234 (7FF777641CE6)
+
+    acc = utils.mask(acc)
+
+    acc, seed = mix_both(acc, seed, index, rax)             # 7FF777641CEC
+    return acc, seed
+
+
+def mix_both(acc, seed, index, rax):                        # keygenme 0x7FF777641CEC
+    r8 = seed                                               # mov r8d, ecx
+    r8 += index                                             # add r8d, edx
+
+    seed = utils.mask(r8 + rax)                             # lea ecx, qword ptr ds:[r8+rax]
+    seed ^= r8                                              # xor ecx, r8d
+    acc ^= seed                                             # xor edi, ecx
+
+    return acc, seed
+
+
+def mix_odd(char, acc, seed, index, rax):                   # keygenme 0x7FF777641D17
+    acc = utils.rol(acc, 0x1D)                              # rol edi, 0x1D
+    acc += char                                             # add edi, r8d
+    acc += 0xE5D4C3B3                                       # add edi, 0xE5D4C3B3
+
+    acc = utils.mask(acc)
+
+    acc, seed = mix_both(acc, seed, index, rax)             # jmp keygenme.7FF777641CEC
+    return acc, seed
+
+
+def encode_name_input():                                    # keygen.0x7FF777641D0D
+    rax = utils.mask(len(NAME_INPUT))                       # call <JMP.&strlen>
+    rax = utils.neg(rax)                                    # neg eax
+    acc = CONST_1                                           # mov ecx, DEADC0DE
+    seed = CONST_2                                          # mov edi, 55555555
+
+    # loop logic
+    for index, char in enumerate(NAME_INPUT):               # movzx r8d, r8b
+        if (ord(char) % 2 == 0):                            # test r8b, 1
+            acc, seed = mix_even(                           # je keygenme.7FF777641CE0
+                ord(char), acc, seed, index, rax
+            )
+        else:
+            acc, seed = mix_odd(                            # 7FF777641D17
+                ord(char), acc, seed, index, rax
+            )
+
+        # print('CHAR: ', char, ' | EDI: ', hex(acc).upper())
+
+    return acc, seed
+
+
+def encode_name_input_part_two():
+    edi, ecx = encode_name_input()                          # 7FF777641D0D
+
+    edx = utils.imul_low(len(NAME_INPUT), len(NAME_INPUT))  # imul edx, edx
+    eax = edx                                               # mov eax, edx
+    eax = utils.shl(eax, 8)                                 # shl eax, 0x08
+    eax = utils.mask(eax - edx)                             # sub eax, edx
+
+    edi = utils.rol(edi, 0x1D)                              # rol edi, 1D
+    edi = utils.mask(edi + ecx)                             # add edi, ecx
+    edi = utils.mask(edi ^ eax)                             # xor edi, eax
+
+    print('EDI: ', utils.phex(edi), ' | EAX: ', utils.phex(eax), ' | ECX: ', utils.phex(ecx))
+
+    return edi, ecx
+
+
+def main():
+    edi, ecx = encode_name_input_part_two()
+
+
+if __name__ == "__main__":
+    main()
+
+```
+
+I excluded the code where I have spiced it up a bit to accept user input - instead of a hardcoded `Name` - as well as command line variables. 
+
+#### 11.2.6 Using `keygen.py`
+
+To use the key generator, there are two options:
+
+1. Run the `keygen.py` file normally, it will prompt for input.
+
+   ![image-20251207185806732](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207185806732.png)
+
+   Which upon clicking enter will display the key:
+
+   ![image-20251207185828030](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207185828030.png)
+
+2. Run the `keygen.py` file with a command line arguement.
+
+![image-20251207185923518](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207185923518.png)
+
+​	Which upon execution will display the key:
+
+![image-20251207185950280](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207185950280.png)
 
 ---
 
-## 12. Notes
+## 12. Trying out different `Name` inputs
 
-### 12.1 Name encoding tracking chart
+Time to have some fun and bask in the hard work by testing out different `Name` inputs to ensure our key generator is 100%.
 
-| Name       | `RDI` register during `cmp` instruction |
-| ---------- | --------------------------------------- |
-| helloworld | `00000000AD40C7E8`                      |
-| worldhello | `00000000E3F6C497`                      |
+## 12.1 `senorgpt`
 
-### 12.2 Key encoding tracking chart
+![image-20251207190303855](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207190303855.png)
 
-| Key        | `RAX` after `strtoul` call |
-| ---------- | -------------------------- |
-| worldhello | `0000000000000000`         |
-| 0123456789 | `00000000FFFFFFFF`         |
-| 012345     | `0000000000012345`         |
-| world      | `0000000000000000`         |
+![image-20251207190350873](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207190350873.png)
 
+## 12.2 `crackmes.one`
 
+![image-20251207190531572](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207190531572.png)
 
-`helloworld`  in hexadecimal is `0000000113D9EEB0`.
+![image-20251207190544558](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207190544558.png)
+
+## 12.3 `Coder_90`
+
+![image-20251207190658188](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207190658188.png)
+
+![image-20251207190729449](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207190729449.png)
+
+Amazing! 😍
 
 ------
+
+# 13. Turning it into an executable
+
+I decided to spruce it up a bit more, turned it into an executable as well as copied the `Key` value into the clipboard for Q.O.L. (Quality of Life) purposes.
+
+![image-20251207192219680](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207192219680.png)
+
+Double clicking the executable (just like running the `keygen.py` file):
+
+![image-20251207192238036](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207192238036.png)
+
+Running the executable via command line arguements:
+
+![image-20251207192354452](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207192354452.png)
 
 ## 13. Conclusion (WIP)
 
@@ -302,10 +633,13 @@ This write-up will be expanded as I complete the analysis of the key derivation 
 
 ## 14. New things learned
 
-1. I had an instruction that was being jumped to before my breakpoint. I knew which instruction but did not know where the jump was coming from.
+1. I had an instruction that was being jumped to before my breakpoint. I knew which instruction, but did not know where the jump was coming from.
    Right clicking on the instruction, *Find References To - Selected Address*
+   will show you any references to that address.
 
    ![image-20251207021757814](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251207021757814.png)
+
+2.  Bit shifting / rotating. (EXPAND ON THIS)
 
    
 
