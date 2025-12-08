@@ -65,7 +65,7 @@ crackmes.one/
 - **Author**: Coder_90
 - **Status**: ✅ Solved
 - **Solution**: See `Coder_90 - KeyGenMeV3/Coder_90 - KeyGenMeV3 - Solution.pdf`
-- **Description**: Win32 GUI crackme with Name + Key validation. Used CFF Explorer for static analysis and x64dbg for dynamic analysis to trace the key validation algorithm. The program processes the name input through a semi-complex encoding function that uses different mixing operations for even/odd characters, involving ROL operations, XOR, and addition with constants. Reversed the algorithm and implemented a Python keygen that generates valid keys for any given name.
+- **Description**: My first keygen; Win32 GUI crackme with Name + Key validation. Used CFF Explorer for static analysis and x64dbg for dynamic analysis to trace the key validation algorithm. The program processes the name input through a semi-complex encoding function that uses different mixing operations for even/odd characters, involving ROL operations, XOR, and addition with constants. Reversed the algorithm and implemented a Python keygen that generates valid keys for any given name.
 - **Date Solved**: 2025-12-07
 
 </details>
