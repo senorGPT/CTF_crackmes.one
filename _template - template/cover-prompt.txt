@@ -1,0 +1,3 @@
+“Create a square cover image in the exact same style as my previous crackme cover: dark cyber grid background with faint green code/hex imagery, subtle blur/vignette, high-contrast white pixel/retro-futuristic programmer font. Centered large title in all caps. Underneath in smaller matching font: ‘Writeup by SenorGPT’ (no accent on the n). Keep spacing, alignment, and typography consistent with the prior cover. The only change is the main title text: ‘{CRACKME_NAME}’. Minimal, clean, modern reverse-engineering vibe.”
+
+Replace {CRACKME_NAME}
