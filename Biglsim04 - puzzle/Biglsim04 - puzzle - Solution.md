@@ -36,7 +36,9 @@ I successfully:
 
 - Surveyed imports. Confirmed there appears to be anti-debugging measures.
 
-- Located strings associated with success & failure dialogs. Begun stepping into the key-check path.
+- Tried to locate strings associated with success & failure dialogs.
+
+- Added breakpoints on functions that may be used for anti-debugging and begun to trace logic.
 
   
 
@@ -46,8 +48,8 @@ I successfully:
 
 ### 2.1 UI / Behaviour
 
-- Inputs: Enter password
-- Outputs: Access Denied, Access Accepted (assumption based on string references in x64dbg).
+- Inputs: *Enter password:*
+- Outputs: *Access Denied*, *Access Accepted* (assumption based on wrong answer string).
 
 ### 2.2 Screens
 
@@ -83,23 +85,23 @@ Followed by exit on next key input.
 
 ### 4.1 File & Headers
 
-There appears to be no obvious signs of packing or obfuscation. The classic, boring set of sections `.text, .rdata, .data, .reloc` represent a very typical layout for an unprotected Visual Studio type Portable Executable (*PE*).
+There appears to be no obvious signs of packing or obfuscation. The classic boring set of sections `.text`, `.rdata`, `.data`, `.reloc` represent a very typical layout for an unprotected Visual Studio type Portable Executable (*PE*).
 The sizes also seem reasonable for a small console application.
 
 ![image-20251208085118755](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251208085118755.png)
 
 Packed binaries often show one or more of these red flags:
 
-- Weird section names:
+- **Weird section names:**
   `.UPX0, .UPX1, .aspack, .petite`, or just random gibberish.
 
-- Very few sections:
+- **Very few sections:**
   Sometimes just one or two suspicious ones.
 
-- Abnormal size balance:
+- **Abnormal size balance:**
   A tiny `.text` with a huge other section holding compressed payload.
 
-It is *IMPORTANT* to note that headers alone can not alone confirm if the *PE* has been packed or obfuscated as the packer/obfuscator might use normal looking section names, keep a standard layout, and/or hide the real tell in entropy or runtime behaviour.
+It is *IMPORTANT* to note that headers alone can not confirm if the *PE* has been packed or obfuscated as the packer/obfuscator used might utilize normal looking section names, keep a standard layout, and/or hide the real tell in entropy or runtime behaviour.
 
 
 
@@ -113,7 +115,7 @@ Entropy is a measure of how *random-looking* the bytes are in a section.
 Why this matters:
 
 - Packed or encrypted payloads often have high entropy.
-- Normal .text code usually has moderate entropy.
+- Normal `.text` code usually has moderate entropy.
 
 Rule of thumb (quick reference, not 100%):
 
@@ -127,14 +129,14 @@ Unfortunately, *CFF Explorer* does not have an entropy viewer so I switch to *DI
 
 ![image-20251209031847854](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251209031847854.png)
 
-The top blue bar shows *DIE*'s overall heuristic guess based mostly on entropy patterns and layout, not necessarily proof but a strong hint that this is not classically packed.
+The top blue bar shows *DIE*'s overall heuristic guess based mostly on entropy patterns and layout. This is not necessarily proof, but a strong hint that this is not classically packed.
 
 The table shows each row as a region - header + each *PE* section - with an entropy score.
 
 | Section Name | Entropy Score | Note                                                         |
 | ------------ | ------------- | ------------------------------------------------------------ |
 | *PE* Header  | 2.51659       | Low entropy is normal for headers.                           |
-| .text        | 6.44770       | normal-looking code entropy. If this was packed or encrypted the value would be closer to ~7.5–8.0. |
+| .text        | 6.44770       | normal looking code entropy. If this was packed or encrypted the value would be closer to ~7.5–8.0. |
 | .rdata       | 4.66111       | Normal for constants/strings/tables.                         |
 | .data        | 2.64577       | Very normal (initialized globals).                           |
 | .reloc       | 5.29263       | Also not unusual.                                            |
@@ -142,7 +144,7 @@ The table shows each row as a region - header + each *PE* section - with an entr
 Nothing here also seems to scream that this *PE* is packed.
 
 Finally, the graph represents a rolling entropy line across the file from start to end. The long flatish area around *~6* matches the `.text` region.
-The later dips/spikes reflect transitions into `.rdata`, `.data`, `.reloc`.
+The later dips and spikes reflect transitions into `.rdata`, `.data`, `.reloc`.
 
 Again, if this *PE* was packed the graph would have a big chunk of the line hovering around *~7.4-8*.
 
@@ -150,12 +152,12 @@ Again, if this *PE* was packed the graph would have a big chunk of the line hove
 
 ### 4.3 Build & Toolchain Information
 
-Summary provided by *DIE*
+Screenshot summary provided by *DIE*
 
 ![image-20251209030922816](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251209030922816.png)
 
 **Operation system: Windows(Vista)AMD64, 64-bit, Console**
-The binary is a *64-bit Windows console app*. The *Vista* part usually reflects the *minimum subsystem version* or tool heuristics and not that it only runs on Vista.
+The binary is a *64-bit Windows console app*. The *Vista* part usually reflects the *minimum subsystem version* or tool heuristics and *NOT* that it only runs on Vista.
 
 **Linker: Microsoft Linker (14.36.34123)**
 The exact *MSVC linker version* used to produce the EXE.
@@ -165,7 +167,7 @@ Identifies the *Visual C++ compiler version*.
 **LTCG** = *Link-Time Code Generation* (whole-program optimization). The `/C` part is just the tool’s way of labelling the language/compile family.
 
 **Language: C**
-The tool’s best guess for source language. In practice, this likely means *C or C++* with a C-like signature.
+*DIE*’s best guess for source language. In practice, this likely means *C or C++* with a C-like signature.
 
 **Tool: Visual Studio(2022, v17.6)**
 Maps those version numbers to the likely *IDE/toolchain family* that was used to build the *EXE*.
@@ -180,17 +182,19 @@ Since it is a simple console application, the only import *SEEMS* to be `KERNEL3
 
 
 
+#### 4.4.1 KERNEL32.dll
+
 Off the bat I notice at least one *VERY* interesting function that is commonly used as a direct check for anti-debugging, `IsDebuggerPresent`.
 
-Other functions that caught my eye are the timing functions; `QueryPerformanceCounter`, `GetTickCount`, `GetTickCount64`, `GetSystemTimeAsFileTime`. These aren't necessarily indicative of anything, but *COULD* be used to support debugger detection logic by performing timing checks.
+Other functions that caught my eye are the timing functions; `QueryPerformanceCounter`, `GetTickCount`, `GetTickCount64`, `GetSystemTimeAsFileTime`. These aren't necessarily indicative of anything, but *could* be used to support debugger detection logic by performing timing checks.
 
-`GetCurrentProcessId`, `GetStartupInfoW`, and `GetCurrentThreadId` *COULD* also be used as anti-debug logic to check for certain flags or conditions on the program itself.
+`GetCurrentProcessId`, `GetStartupInfoW`, and `GetCurrentThreadId` *could* also be used as anti-debug logic to check for certain flags or conditions on the program itself.
 
-`LoadLibraryExW`, `GetProcAddress` and `FreeLibrary` could be used to hide libraries/modules by dynamic resolution.
+`LoadLibraryExW`, `GetProcAddress` and `FreeLibrary` *could* be used to hide libraries/modules by dynamic resolution.
 
-`GetLastError`, `SetLastError`, `RaiseException`, `UnhandledExceptionFilter`, and `SetUnhandledExceptionFilter` could all be used in exception based anti-debugging measures.
+`GetLastError`, `SetLastError`, `RaiseException`, `UnhandledExceptionFilter`, and `SetUnhandledExceptionFilter` *could* all be used in exception based anti-debugging measures.
 
-`IsProcessorFeaturePresent` is also interesting as it could be used for certain anti-debug exception tricks.
+`IsProcessorFeaturePresent` is also interesting as it *could* be used for certain anti-debug exception tricks.
 
 `VirtualProtect` is often used for unpacking, self-modifying code, patching stubs, and flipping page protections around anti-debug regions. 
 
@@ -219,7 +223,7 @@ That's a lot of references! Utilizing the search functionality at the bottom of 
 
 ![image-20251209012604476](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251209012604476.png)
 
-Nada! Well that's a first for me. Never before have I had it where there are zero string references found. Something new is always interesting!
+Nada! Well that's a first for me, never before have I had it where there are zero string references found. Something new is always interesting!
 
 Time to switch to a breakpoint approach.
 
@@ -281,23 +285,200 @@ See [Input Breakpoints](###6.2 Input Breakpoints) for a more detailed breakpoint
 
 ## 6. Dynamic Analysis - Tracing Breakpoints and Stepping Over Logic
 
-### 6.1 Anti-Debugging Breakpoints
-
-With the breakpoints added, I resume program execution from the entry breakpoint.
-
-![image-20251209025006530](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251209025006530.png)
-
-
-
-#### 6.1.1 The First Break - <kernel32.dll.LoadLibraryExW>
-
 See [Windows x64 Calling Convention](###8.1 Windows x64 Calling Convention) for a quick refresher on Windows x64 calling convention.
 
 
 
-Switching over to the *Call Stack* tab I can see that it is being directly called by the *PE*.
+### 6.1 Anti-Debugging Breakpoints
+
+With the new breakpoints added, I resume program execution from the entry breakpoint.
+
+![image-20251209153246036](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251209153246036.png)
+
+I disabled the `GetTickCount` breakpoint as it was getting triggered on each frame, instead replacing it with a breakpoint in the caller that I hope will bring me closer to the flag comparison logic.
+
+There seems to be more going on than a simple console checker. `GetProcAddress` (x17) + `LoadLibraryExW` (x9) on start-up shows that the binary is *OR* might-be keeping the static import table small/boring and resolving lots of APIs at runtime.
+
+I also noticed that `IsDebuggerPresent` breakpoint never gets triggered, even upon input validation.
+
+
+
+#### 6.1.1 kernel32.dll.LoadLibraryExW
+
+See [LoadLibraryExW Function Definition](####8.2.1 kernel32.dll.LoadLibraryExW) for function definition details.
+
+
+
+Switching over to the *Call Stack* tab I can see that it is being directly called by the *PE*. This means that the target binary is the one actually making the call to `LoadLibraryExW` and not some other module/code.
 
 ![image-20251209033617320](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251209033617320.png)
+
+Continuing the execution into `KERNEL32.DLL.LoadLibraryExW` I see that the following registers have the values:
+
+- **Call #1** - Most likely *normal OS dependency resolution* with a *safe flag* restricting search to *System32*.
+
+| Register | Value            | Note                                        |
+| -------- | ---------------- | ------------------------------------------- |
+| RCX      | 00007FF685B937E0 | L"api-ms-win-core-synch-l1-2-0"             |
+| RDX      | 0000000000000000 |                                             |
+| R8       | 0000000000000800 | `LOAD_LIBRARY_SEARCH_SYSTEM32` = 0x00000800 |
+
+- **Call #2** - Most likely *normal OS dependency resolution* with a *safe flag* restricting search to *System32*.
+
+| Register | Value            | Note                                        |
+| -------- | ---------------- | ------------------------------------------- |
+| RCX      | 00007FF685B937A0 | L"api-ms-win-core-fibers-l1-1-1"            |
+| RDX      | 0000000000000000 |                                             |
+| R8       | 0000000000000800 | `LOAD_LIBRARY_SEARCH_SYSTEM32` = 0x00000800 |
+
+- **Call #3** - Most likely *normal OS dependency resolution* with a *safe flag* restricting search to *System32*.
+
+| Register | Value            | Note                                        |
+| -------- | ---------------- | ------------------------------------------- |
+| RCX      | 00007FF685B95E90 | L"api-ms-win-core-fibers-l1-1-2"            |
+| RDX      | 0000000000000000 |                                             |
+| R8       | 0000000000000800 | `LOAD_LIBRARY_SEARCH_SYSTEM32` = 0x00000800 |
+
+- **Call #4** - Most likely *normal OS dependency resolution* with a *safe flag* restricting search to *System32*.
+
+| Register | Value            | Note                                        |
+| -------- | ---------------- | ------------------------------------------- |
+| RCX      | 00007FF685B95F80 | L"api-ms-win-core-localization-l1-2-1"      |
+| RDX      | 0000000000000000 |                                             |
+| R8       | 0000000000000800 | `LOAD_LIBRARY_SEARCH_SYSTEM32` = 0x00000800 |
+
+- **Call #5** - Likely normal runtime/loader behaviour.
+
+| Register | Value            | Note                                        |
+| -------- | ---------------- | ------------------------------------------- |
+| RCX      | 00007FF685B93820 | L"kernel32"                                 |
+| RDX      | 0000000000000000 |                                             |
+| R8       | 0000000000000800 | `LOAD_LIBRARY_SEARCH_SYSTEM32` = 0x00000800 |
+
+- **Call #6** - Most likely *normal OS dependency resolution* with a *safe flag* restricting search to *System32*.
+
+| Register | Value            | Note                                        |
+| -------- | ---------------- | ------------------------------------------- |
+| RCX      | 00007FF685B96080 | L"api-ms-win-core-string-l1-1-0"            |
+| RDX      | 0000000000000000 |                                             |
+| R8       | 0000000000000800 | `LOAD_LIBRARY_SEARCH_SYSTEM32` = 0x00000800 |
+
+- **Call #7** - Most likely *normal OS dependency resolution* with a *safe flag* restricting search to *System32*.
+
+| Register | Value            | Note                                        |
+| -------- | ---------------- | ------------------------------------------- |
+| RCX      | 00007FF685B95E50 | L"api-ms-win-core-datetime-l1-1-1"          |
+| RDX      | 0000000000000000 |                                             |
+| R8       | 0000000000000800 | `LOAD_LIBRARY_SEARCH_SYSTEM32` = 0x00000800 |
+
+- **Call #8** - Most likely *normal OS dependency resolution* with a *safe flag* restricting search to *System32*.
+
+| Register | Value            | Note                                            |
+| -------- | ---------------- | ----------------------------------------------- |
+| RCX      | 00007FF685B95FD0 | L"api-ms-win-core-localization-obsolete-l1-2-0" |
+| RDX      | 0000000000000000 |                                                 |
+| R8       | 0000000000000800 | `LOAD_LIBRARY_SEARCH_SYSTEM32` = 0x00000800     |
+
+- **Call #9** - Most likely *normal OS dependency resolution* with a *safe flag* restricting search to *System32*.
+
+| Register | Value            | Note                                          |
+| -------- | ---------------- | --------------------------------------------- |
+| RCX      | 00007FF685B961D0 | L"api-ms-win-security-systemfunctions-l1-1-0" |
+| RDX      | 0000000000000000 |                                               |
+| R8       | 0000000000000800 | `LOAD_LIBRARY_SEARCH_SYSTEM32` = 0x00000800   |
+
+
+
+The binary consistently restricts DLL search to System32 during early initialization which aligns with modern safe-loading practices and reduces the likelihood of DLL search-order hijacking. The `api-ms-win-*` entries reflect Windows API-set indirection. Their presence here is typical for modern MSVC builds and does not by itself indicate obfuscation. None of the observed `LoadLibraryExW` function calls directly load `ntdll.dll` or other modules - `user32.dll`, `dbghelp.dll` - commonly associated with advanced anti-debug checks. The initial loads appear consistent with baseline OS/runtime dependencies.
+
+
+
+#### 6.1.2 kernel32.dll.SetUnhandledExceptionFilter
+
+See [SetUnhandledExceptionFilter Function Definition](####8.2.2 kernel32.dll.SetUnhandledExceptionFilter) for function definition details.
+
+
+
+Return value is `NULL` (00000000), indicating no prior top-level exception filter was registered before this call. Nothing interesting is happening here, so I continue on to the next breakpoint.
+
+
+
+#### 6.1.3 kernerl32.dll.GetTickCount64
+
+See [GetTickCount64 Function Definition](####8.2.3 kernerl32.dll.GetTickCount64) for function definition details.
+
+
+
+Since `GetTickCount64` is only called once I decide to investigate what it's being used for. Upon hitting the breakpoint I hit Debug - Execute till return (CTRL + F9) and get to the caller. Alternatively, using the *Call Stack* would bring me to the same location by clicking on the frame underneath the `GetTickCount64` frame.
+
+My first guess without diving too deep into this function is that it might be generating some kind of seed from the system time. This value could then be used as an encoding seed of sorts (***just a guess***).
+
+![image-20251209184706474](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251209184706474.png)
+
+An interesting instruction I notice is `rdtsc` which reads the CPU's *Time Stamp Counter* (*TSC*). The return is a *64-bit number* that usually increases constantly whilst the system runs. After the instruction, `EAX` holds the *low 32-bits* and `EDX` holds the *high 32-bits*. These are then usually combined by an `or` instruction.
+
+![image-20251210014935078](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251210014935078.png)
+
+It also appears to be doing some kind of encoding and transformation based off the return values from `rdtsc` and `GetTickCount64`.
+
+After spending some time decoding each instruction, 
+
+
+
+#### 6.1.4 Switching my approach
+
+I'm starting to think that a lot of functions might have been imported and never used *OR* just imported as red-herrings. This has caused me to search in unnecessary areas instead of trying to track down any anti-debugging logic. I will switch gears to attempt to find the flag and see if I trip up any anti-debug code along the way. 
+
+
+
+### 6.2 Input Breakpoints
+
+
+
+------
+
+## 7. Validation Path
+
+
+
+---
+
+## 8. Useful Notes, Reminders, and Definitions
+
+### 8.1 Windows x64 Calling Convention
+
+On Windows x64 calling convention:
+
+- RCX = 1st parameter
+- RDX = 2nd
+- R8  = 3rd
+- R9  = 4th
+- RAX = return value
+- If there are *more than four arguements*, the rest go on the *stack*.
+
+#### 8.1.1 Volatile & Non-Volatile registers
+
+Volatile (caller-saved): `RAX, RCX, RDX, R8–R11`
+
+​		If you’re tracking values across calls, expect volatile regs to get clobbered.
+
+Non-volatile (callee-saved): `RBX, RBP, RSI, RDI, R12–R15`
+
+#### 8.1.2 Shadow Space
+
+The caller *MUST* reserve 32 bytes of *shadow space* on the stack before the call. So even if a function has fewer than 4 parameters, you’ll still see that stack layout pattern. It’s there so the *callee* has a guaranteed place to spill the first four register arguments if it wants: `RCX`, `RDX`, `R8`, `R9`.
+
+
+
+#### 8.1.3 Stack Alignment
+
+*Windows x64* requires the stack to be *16-byte aligned at the moment of a `call`*. This is because the `call` instruction pushes an *8-byte* return address, which shifts `RSP` by 8 and can break *16-byte* alignment.
+
+
+
+### 8.2 Function Definitions
+
+#### 8.2.1 kernel32.dll.LoadLibraryExW
 
 `LoadLibraryExW` has three parameters and returns an *HMODULE* (or *NULL* on failure).
 
@@ -321,13 +502,20 @@ HMODULE LoadLibraryExW(
 3. **dwFlags** (`DWORD`)
    - Controls *how* the module is loaded / searched.
    - Common ones include:
-     - `0x00000000` → normal load
-     - `LOAD_WITH_ALTERED_SEARCH_PATH`
-     - `LOAD_LIBRARY_AS_DATAFILE`
-     - `LOAD_LIBRARY_AS_IMAGE_RESOURCE`
-     - `LOAD_LIBRARY_SEARCH_SYSTEM32`
-     - `LOAD_LIBRARY_SEARCH_APPLICATION_DIR`
-     - `LOAD_LIBRARY_SEARCH_DEFAULT_DIRS`
+
+| Flag                                  | Value        | Note                                                         |
+| ------------------------------------- | ------------ | ------------------------------------------------------------ |
+|                                       | `0x00000000` | Default load behaviour (normal DLL search order).            |
+| `DONT_RESOLVE_DLL_REFERENCES`         | `0x00000001` | Maps the DLL but *doesn’t call* `DllMain` or resolve imports - useful for inspection. |
+| `LOAD_LIBRARY_AS_DATAFILE`            | `0x00000002` | Loads the module *as a data file* (resources), not for code execution. |
+| `LOAD_LIBRARY_AS_IMAGE_RESOURCE`      | `0x00000020` | Loads *only as an image resource*, mostly for resource access. |
+| `LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE`  | `0x00000040` | Like `AS_DATAFILE` but tries to keep it exclusive so others can’t modify it. |
+| `LOAD_WITH_ALTERED_SEARCH_PATH`       | `0x00000008` | Changes search order to prioritize the DLL’s directory - older/legacy pattern. |
+| `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR`    | `0x00000100` | Search the directory of the DLL being loaded                 |
+| `LOAD_LIBRARY_SEARCH_APPLICATION_DIR` | `0x00000200` | Search the executable’s directory                            |
+| `LOAD_LIBRARY_SEARCH_USER_DIRS`       | `0x00000400` | Search directories added via `AddDllDirectory`               |
+| `LOAD_LIBRARY_SEARCH_SYSTEM32`        | `0x00000800` | Search `System32` only                                       |
+| `LOAD_LIBRARY_SEARCH_DEFAULT_DIRS`    | `0x00001000` | A safe default set: app directory + system32 + user-added directories (recommended modern choice). |
 
 If a weird flag value is present, it may be a *bitwise OR* of multiple flags.
 
@@ -336,48 +524,113 @@ If a weird flag value is present, it may be a *bitwise OR* of multiple flags.
   - Failure: **NULL** (`RAX = 0`).
     - Then `GetLastError()` can inform you as to why.
 
-
-
-### 6.2 Input Breakpoints
-
-
-
-------
-
-## 7. Validation Path
+[Jump Back](####6.1.1 kernel32.dll.LoadLibraryExW)
 
 
 
----
+#### 8.2.2 kernel32.dll.SetUnhandledExceptionFilter
 
-## 8. Useful Notes and Reminders
+`SetUnhandledExceptionFilter` accepts one parameter and returns an *LPTOP_LEVEL_EXCEPTION_FILTER* which is the previous unhandled exception filter (or *NULL* if none).
 
-### 8.1 Windows x64 Calling Convention
+```c
+LPTOP_LEVEL_EXCEPTION_FILTER SetUnhandledExceptionFilter(
+    LPTOP_LEVEL_EXCEPTION_FILTER lpTopLevelExceptionFilter
+);
+```
 
-On Windows x64 calling convention:
+1. **lpTopLevelExceptionFilter** (`LPTOP_LEVEL_EXCEPTION_FILTER`)
+   - Pointer to a *custom unhandled exception filter* function.
+   - This function is called when an exception *isn't handled* by structured exception handling in the process.
+   - Often something like:
+     - `MyUnhandledExceptionFilter`
+     - `NULL` (to clear/disable a previously set filter)
 
-- RCX = 1st parameter
-- RDX = 2nd
-- R8  = 3rd
-- R9  = 4th
-- RAX = return value
-- If there are *more than four arguements*, the rest go on the *stack*.
+- **Return Value** (`LPTOP_LEVEL_EXCEPTION_FILTER`)
+  - Returns a pointer to the *previous* unhandled exception filter.
+  - Often:
+    - Another filter function pointer if one was already set
+    - `NULL` if no previous filter was registered
 
-#### 8.1.1 Volatile & Non-Volatile registers
+[Jump Back](####6.1.2 kernel32.dll.SetUnhandledExceptionFilter)
 
-Volatile (caller-saved): `RAX, RCX, RDX, R8–R11`
 
-​		If you’re tracking values across calls, expect volatile regs to get clobbered.
 
-Non-volatile (callee-saved): `RBX, RBP, RSI, RDI, R12–R15`
+#### 8.2.3 kernerl32.dll.GetTickCount64
 
-#### 8.1.2 Shadow Space
+`GetTickCount64` takes no parameters and returns a *ULONGLONG* representing the number of milliseconds that have elapsed since the system was started.
 
-The caller reserves 32 bytes of *shadow space* on the stack before the call. So even if a function has fewer than 4 parameters, you’ll still see that stack layout pattern.
+```c
+ULONGLONG GetTickCount64(
+    VOID
+);
+```
+
+- **Return Value (`ULONGLONG`)**
+  - Returns the number of **milliseconds since system boot**.
+  - Often used for:
+    - timing measurements
+    - detecting delays (e.g., anti-debug “single-step slowdown” checks)
+
+[Jump Back](####6.1.3 kernerl32.dll.GetTickCount64)
+
+
+
+### 8.3 x64 Register Size Cheat Sheet
+
+Each 64-bit register has smaller *views*; Example with `RAX`:
+
+| Size         | Name  | What it is                     |
+| ------------ | ----- | ------------------------------ |
+| 64-bit       | `RAX` | full register                  |
+| 32-bit       | `EAX` | low 32 bits of `RAX`           |
+| 16-bit       | `AX`  | low 16 bits                    |
+| 8-bit (low)  | `AL`  | low 8 bits                     |
+| 8-bit (high) | `AH`  | bits 8–15 (upper half of `AX`) |
+
+*So* `AX = AH:AL`. The same pattern applies to others
+
+
+
+**Common Registers;** High *8-bit* forms exist only for these classic registers:
+
+| 64-bit  | 32-bit | 16-bit | 8-bit low | 8-bit high* |
+| ------- | ------ | ------ | --------- | ----------- |
+| **RAX** | EAX    | AX     | AL        | AH          |
+| **RBX** | EBX    | BX     | BL        | BH          |
+| **RCX** | ECX    | CX     | CL        | CH          |
+| **RDX** | EDX    | DX     | DL        | DH          |
+
+**Pointer/Index Registers;** These do *NOT* have `AH/BH/CH/DH` style high *8-bit* forms.
+
+| 64-bit  | 32-bit | 16-bit | 8-bit low |
+| ------- | ------ | ------ | --------- |
+| **RSI** | ESI    | SI     | SIL       |
+| **RDI** | EDI    | DI     | DIL       |
+| **RBP** | EBP    | BP     | BPL       |
+| **RSP** | ESP    | SP     | SPL       |
+
+**Extended registers (x64-only);** No high *8-bit* halves here either:
+
+| 64-bit  | 32-bit | 16-bit | 8-bit low |
+| ------- | ------ | ------ | --------- |
+| **R8**  | R8D    | R8W    | R8B       |
+| **R9**  | R9D    | R9W    | R9B       |
+| **R10** | R10D   | R10W   | R10B      |
+| **R11** | R11D   | R11W   | R11B      |
+| **R12** | R12D   | R12W   | R12B      |
+| **R13** | R13D   | R13W   | R13B      |
+| **R14** | R14D   | R14W   | R14B      |
+| **R15** | R15D   | R15W   | R15B      |
+
+Important to note that writing to a *32-bit* register, such as `EAX`, *zeroes* the upper 32 bits of the 64-bit register (`RAX`).
+
+
 
 ---
 
 ## 9.
+
+
 
 ---
 
