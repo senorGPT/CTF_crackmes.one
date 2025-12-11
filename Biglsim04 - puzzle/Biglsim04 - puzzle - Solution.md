@@ -399,7 +399,7 @@ See [SetUnhandledExceptionFilter Function Definition](####8.2.2 kernel32.dll.Set
 
 
 
-Return value is `NULL` (00000000), indicating no prior top-level exception filter was registered before this call. Nothing interesting is happening here, so I continue on to the next breakpoint.
+Return value is `NULL` (00000000), indicating no prior top-level exception filter was registered before this call. Nothing interesting happening here, so I continue on to the next breakpoint.
 
 
 
@@ -409,9 +409,9 @@ See [GetTickCount64 Function Definition](####8.2.3 kernerl32.dll.GetTickCount64)
 
 
 
-Since `GetTickCount64` is only called once I decide to investigate what it's being used for. Upon hitting the breakpoint I hit Debug - Execute till return (CTRL + F9) and get to the caller. Alternatively, using the *Call Stack* would bring me to the same location by clicking on the frame underneath the `GetTickCount64` frame.
+Since `GetTickCount64` is only called once I decide to investigate what it's being used for. Upon hitting the breakpoint, I hit Debug - Execute till return (CTRL + F9) and get to the caller. Alternatively, using the *Call Stack* would bring me to the same location by clicking on the frame underneath the `GetTickCount64` frame.
 
-My first guess without diving too deep into this function is that it might be generating some kind of seed from the system time. This value could then be used as an encoding seed of sorts (***just a guess***).
+My first guess without diving too deep into this function is that it might be generating some kind of value from the system time. This value could then be used as an encoding seed of sorts (***just a guess***).
 
 ![image-20251209184706474](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251209184706474.png)
 
@@ -421,7 +421,15 @@ An interesting instruction I notice is `rdtsc` which reads the CPU's *Time Stamp
 
 It also appears to be doing some kind of encoding and transformation based off the return values from `rdtsc` and `GetTickCount64`.
 
-After spending some time decoding each instruction, 
+After spending some time decoding each instruction it does indeed seem like it creates some kind of seed value and stores it within a global.
+
+![image-20251211005825753](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211005825753.png)
+
+Seems like progress. I added a breakpoint of the instruction `mov byte ptr ds:[7FF865BA3264], al` to keep track of the seed on subsequent executions and proceeded to the return, which lands me in another function.
+
+![image-20251211014415363](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211014415363.png)
+
+This function appears to loop until `RBX == RDI`, at which point it calls the seeding function that uses `GetTickCount64`. What exactly `RDI` is I am unaware of yet.
 
 
 
@@ -433,11 +441,69 @@ I'm starting to think that a lot of functions might have been imported and never
 
 ### 6.2 Input Breakpoints
 
+Two of the breakpoints that end up producing interesting results are `WriteFile` and `ReadFile`. There seems to be some kind of loop that iteratively prints `Hello World!\nEnter password: `. This would explain why I was unable to find any string references ix *x64dbg*, as it seems to be dynamically loading and printing the value. This doesn't seem an avenue worth exploring as it just handles the output to console.
+Taking note of this, I continue to where the user input is captured as I feel that would achieve more desirable results.
+
+
+
+#### 6.2.1 kernel32.dll.WriteFile
+
+After stepping around I land on an interesting function.
+
+![image-20251211023312358](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211023312358.png)
+
+The first immediate thing that stands out to me is the repeated loops to an index of `0x40`.
+
+The two loops at the start take some time but eventually click for me. The first loop I found in the long function just takes the user input up until a newline character and then checks if it is 9 characters long.
+
+![image-20251211043226186](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211043226186.png)
+
+Continuing the execution, I get to the loop that prints "*Access Denied*" onto the screen.
+
+![image-20251211035110391](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211035110391.png)
+
+Above it, I notice a similar looking loop. Considering the conditional before it, I assume that it is the "*Access Allowed*" branch.
+
+![image-20251211035158630](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211035158630.png)
+
+Great, so I - *think I* - have found where the comparison takes place before the right/wrong branches. My next step revolves around setting a breakpoint on that `test dl, dl` and restarting program execution to see what the registers look like. 
+
+![image-20251211040357082](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211040357082.png)
+
+One thing that I am really starting to notice is the repeated use of the value `0x40`, especially for loops. Breaking there, it seems that the important code is not around there but a bit higher. 
+
+A bit above there seems to be a loop that checks if the user input is 9 characters long. If it's not, it jumps to the *"Access Denied"* code branch.
+
+![image-20251211042357251](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211042357251.png)
+
+Changing my input from `helloworld` to `helloworl` I confirm that it indeed is checking the length of the user input and ensuring it is 9 characters long. With that, I continue into the logic that was being jumped over.
+
+![image-20251211042630372](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211042630372.png)
+
+And I think I spot the smoking gun.
+
 
 
 ------
 
 ## 7. Validation Path
+
+The actual flag comparison logic!
+`RAX` (`AL`) represents a character from our user input being compared against `RCX` (`CL`) which I assume is the respective index character of the flag.
+
+![image-20251211043318468](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211043318468.png)
+
+Now to just extract the flag character. BUT, before doing so I temporarily `nop` the `jne` instruction as to not jump to the "*Access Denied*" branch. 
+
+![image-20251211043806038](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211043806038.png)
+
+As I run the program from my breakpoint on the `cmp cl, al` instruction; the `RAX` register spell out: `M`, `Y`, `P`, `A`, `S`, `S`, `1`, `2`, `3`.
+
+Time to enter the password `MYPASS123` and see if it is indeed the correct flag.
+
+![image-20251211044338447](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211044338447.png)
+
+***Great success!***
 
 
 
@@ -628,14 +694,13 @@ Important to note that writing to a *32-bit* register, such as `EAX`, *zeroes* t
 
 ---
 
-## 9.
-
-
-
----
-
-## 10. Conclusion
+## 9. Conclusion
 
 - Summary of final understanding.
 - What you’d improve next time.
 - Optional lessons learned.
+
+
+
+- Spent too much time on anti debugging code when none was really present
+- Wasted a lot of time investigating code that had nothing to do with my end goal of finding the flag
