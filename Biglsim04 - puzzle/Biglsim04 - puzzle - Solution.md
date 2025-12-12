@@ -13,7 +13,7 @@
 
 ## <center><img src="C:\Users\david\Desktop\crackmes.one\Biglsim04 - puzzle\cover.png" alt="cover" style="zoom: 43%;" /></center>
 
-> **Status:** WIP  
+> **Status:** Complete  
 > **Goal:** Document a clean path from initial recon → locating key-check logic → validation/reversal strategy 
 
 ---
@@ -37,6 +37,8 @@ I successfully:
 - Tried to locate strings associated with success & failure dialogs.
 
 - Added breakpoints on functions that may be used for anti-debugging and begun to trace logic.
+
+- Discovered the input validation and reverse engineered the encoding and comparison logic.
 
   
 
@@ -211,7 +213,7 @@ Furthermore, adding breakpoints on `NTDLL.DLL` functions that are used for anti-
 Starting the program in *x64dbg* to see if any immediate anti-debug code triggers yields nothing, yet...
 
 As always, my first point of attack is a string-driven entry. Searching for string references in *x64dbg* yields the following results:
-(Specifically looking for strings that I observed during [start-up](####Start-up) and [failure case](####Failure case); `Hello World!`, `Enter password:`, and `Access Denied!`)
+(Specifically looking for strings that I observed during [start-up](####2.2.1 Start-up) and [failure case](####2.2.2 Failure case); `Hello World!`, `Enter password:`, and `Access Denied!`)
 
 ![image-20251209012444569](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251209012444569.png)
 
@@ -263,11 +265,11 @@ After, I decide to start with breakpoints that might be used for obtaining the u
 | ------------------- | ------------------------------------------------------------ |
 | `ReadConsoleA/W`    | Catches direct keyboard input from the console,can see exactly where the program reads the name/serial and what buffer it lands in. |
 | `WriteConsoleA/W`   | Hits when the program prints prompts or messages; stepping right after often leads straight into the input and validation flow. |
-| `ReadFile`          | Many console apps read STDIN via a handle as if it were a file, so this is a reliable fallback when `ReadConsoleA/W` isn’t used. |
+| `ReadFile`          | Many console apps read `STDIN` via a handle as if it were a file, so this is a reliable fallback when `ReadConsoleA/W` isn’t used. |
 | `WriteFile`         | Console output is sometimes routed through file-style writes, so it helps catch prompts and trace the execution path around user interaction. |
 | `GetStdHandle`      | Usually called right before `ReadConsoleA/W`/`ReadFile` or output calls, so it’s a great “early warning” breakpoint for the I/O path. |
-| `GetCommandLineA/W` | Useful when input is passed as command-line args; you can see raw input early before it gets parsed or transformed. Doesn't seem necessary for this CTF as it doesn't appear to use command line arguements, although it does not hurt to add it. |
-| `GetProcAddress`    | Reveals dynamically resolved APIs (often hidden checks or CRT - C Runtime - calls); the requested function name can instantly expose the program’s real strategy. |
+| `GetCommandLineA/W` | Useful when input is passed as command-line args; you can see raw input early before it gets parsed or transformed. Doesn't seem necessary for this *PE* as it doesn't appear to use command line arguements, although it does not hurt to add it. |
+| `GetProcAddress`    | Reveals dynamically resolved APIs (often hidden checks or *CRT* - C Runtime - calls); the requested function name can instantly expose the program’s real strategy. |
 
 For those that are following along, here is an *x64dbg* command to add all these breakpoints:
 
@@ -387,7 +389,7 @@ Continuing the execution into `KERNEL32.DLL.LoadLibraryExW` I see that the follo
 
 
 
-The binary consistently restricts DLL search to System32 during early initialization which aligns with modern safe-loading practices and reduces the likelihood of DLL search-order hijacking. The `api-ms-win-*` entries reflect Windows API-set indirection. Their presence here is typical for modern MSVC builds and does not by itself indicate obfuscation. None of the observed `LoadLibraryExW` function calls directly load `ntdll.dll` or other modules - `user32.dll`, `dbghelp.dll` - commonly associated with advanced anti-debug checks. The initial loads appear consistent with baseline OS/runtime dependencies.
+The binary consistently restricts DLL search to *System32* during early initialization which aligns with modern safe-loading practices and reduces the likelihood of DLL search-order hijacking. The `api-ms-win-*` entries reflect Windows API-set indirection. Their presence here is typical for modern *MSVC* builds and does not by itself indicate obfuscation. None of the observed `LoadLibraryExW` function calls directly load `ntdll.dll` or other modules - `user32.dll`, `dbghelp.dll` - commonly associated with advanced anti-debug checks. The initial loads appear consistent with baseline OS/runtime dependencies.
 
 
 
@@ -397,7 +399,7 @@ See [SetUnhandledExceptionFilter Function Definition](####8.2.2 kernel32.dll.Set
 
 
 
-Return value is `NULL` (00000000), indicating no prior top-level exception filter was registered before this call. Nothing interesting happening here, so I continue on to the next breakpoint.
+Return value is `NULL` (*0x00000000*), indicating no prior top-level exception filter was registered before this call. Nothing interesting happening here, so I continue on to the next breakpoint.
 
 
 
@@ -407,7 +409,7 @@ See [GetTickCount64 Function Definition](####8.2.3 kernerl32.dll.GetTickCount64)
 
 
 
-Since `GetTickCount64` is only called once I decide to investigate what it's being used for. Upon hitting the breakpoint, I hit Debug - Execute till return (CTRL + F9) and get to the caller. Alternatively, using the *Call Stack* would bring me to the same location by clicking on the frame underneath the `GetTickCount64` frame.
+Since `GetTickCount64` is only called once I decide to investigate what it's being used for. Upon hitting the breakpoint, I hit Debug - Execute till return (*CTRL + F9*) and get to the caller. Alternatively, using the *Call Stack* would bring me to the same location by clicking on the frame underneath the `GetTickCount64` frame.
 
 My first guess without diving too deep into this function is that it might be generating some kind of value from the system time. This value could then be used as an encoding seed of sorts (***just a guess***).
 
@@ -427,13 +429,13 @@ Seems like progress. I added a breakpoint of the instruction `mov byte ptr ds:[7
 
 ![image-20251211014415363](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211014415363.png)
 
-This function appears to loop until `RBX == RDI`, at which point it calls the seeding function that uses `GetTickCount64`. What exactly `RDI` is I am unaware of yet.
+This function appears to loop until `RBX == RDI`, at which point it calls the seeding function that uses `GetTickCount64`. What exactly `RDI` is I am unaware of.
 
 
 
 #### 6.1.4 Switching my approach
 
-I'm starting to think that a lot of functions might have been imported and never used *OR* just imported as red-herrings. This has caused me to search in unnecessary areas instead of trying to track down any anti-debugging logic. I will switch gears to attempt to find the flag and see if I trip up any anti-debug code along the way. 
+I'm starting to think that a lot of functions might have been imported and never used *OR* just imported as red-herrings. This has caused me to search in unnecessary areas trying to track down any anti-debugging logic instead of focusing on finding the flag. I will switch gears to attempt to find the flag and see if I trip up any anti-debug code along the way. 
 
 
 
@@ -450,9 +452,9 @@ After stepping around I land on an interesting function.
 
 ![image-20251211023312358](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211023312358.png)
 
-The first immediate thing that stands out to me is the repeated loops to an index of `0x40`.
+The first immediate thing that stands out to me is the repeated loops to an index amount of `0x40`.
 
-The two loops at the start take some time but eventually click for me. The first loop I found in the long function just takes the user input up until a newline character and then checks if it is 9 characters long.
+The two loops at the start take some time but eventually click for me. The first loop I found just takes the user input up until a newline character and then checks if the result is 9 characters long.
 
 ![image-20251211043226186](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211043226186.png)
 
@@ -468,9 +470,9 @@ Great, so I - *think I* - have found where the comparison takes place before the
 
 ![image-20251211040357082](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211040357082.png)
 
-One thing that I am really starting to notice is the repeated use of the value `0x40`, especially for loops. Breaking there, it seems that the important code is not around there but a bit higher. 
+Side note: one thing that I am really starting to notice is the repeated use of the value `0x40`, especially for loops. Breaking at the `test` instruction, it seems that the important logic is not around there but a bit higher. 
 
-A bit above there seems to be a loop that checks if the user input is 9 characters long. If it's not, it jumps to the *"Access Denied"* code branch.
+A bit above there seems to be a loop that checks if the user input is 9 characters long. If it is not 9 characters long, it jumps to the *"Access Denied"* code branch.
 
 ![image-20251211042357251](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211042357251.png)
 
@@ -487,17 +489,17 @@ And I think I spot the smoking gun.
 ## 7. Validation Path
 
 The actual flag comparison logic!
-`RAX` (`AL`) represents a character from our user input being compared against `RCX` (`CL`) which I assume is the respective index character of the flag.
+`RAX` (`AL` is the lower *8-bits* of `RAX`) represents a character from our user input being compared against `RCX` (`CL` is the lower *8-bits* of `RCX`) which I assume is the respective index character of the flag.
 
 ![image-20251211043318468](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211043318468.png)
 
-Now to just extract the flag character. BUT, before doing so I temporarily `nop` the `jne` instruction as to not jump to the "*Access Denied*" branch. 
+Now to just extract the flag characters. Before doing so I temporarily `nop` the `jne` instruction as to not jump to the "*Access Denied*" branch. 
 
 ![image-20251211043806038](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211043806038.png)
 
-As I run the program from my breakpoint on the `cmp cl, al` instruction; the `RAX` register spell out: `M`, `Y`, `P`, `A`, `S`, `S`, `1`, `2`, `3`.
+As I continue execution from my breakpoint on the `cmp cl, al` instruction; the `RAX` register spells out: `M`, `Y`, `P`, `A`, `S`, `S`, `1`, `2`, `3`.
 
-Time to enter the password `MYPASS123` and see if it is indeed the correct flag.
+Time to enter the flag `MYPASS123` and see if it is indeed the correct flag.
 
 ![image-20251211044338447](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211044338447.png)
 
@@ -505,11 +507,19 @@ Time to enter the password `MYPASS123` and see if it is indeed the correct flag.
 
 
 
-It appears that it is loading in the bytes `D2 C6 CF DE CC CC AE AD AC` one byte at a time and xoring it with `0x9F`.
+It appears that it is loading in the bytes `D2 C6 CF DE CC CC AE AD AC` one byte at a time and xoring it with `0x9F` to get the flag `MYPASS123`.
 
 ![image-20251211172900928](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211172900928.png)
 
 ![image-20251211172537647](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211172537647.png)
+
+Going back to the "*Access Denied*" and "*Access Granted*" strings I realize it is also doing a `xor` by `0x9F` to decode the strings. I also notice it for the "*Enter password:* " text so I assume that it is doing the same for "*Hello World!*" as well.
+
+| Original Bytes                                  | Decoded Bytes (XOR by 0x9F)                     | ASCII             |
+| ----------------------------------------------- | ----------------------------------------------- | ----------------- |
+| DE FC FC FA EC EC BF D8 ED FE F1 EB FA FB BE 95 | 41 63 63 65 73 73 20 47 72 61 6E 74 65 64 21 0A | Access Granted!\n |
+| DE FC FC FA EC EC BF DB FA F1 F6 FA FB BE 95    | 41 63 63 65 73 73 20 44 65 6E 69 65 64 21 0A    | Access Denied!\n  |
+| DA F1 EB FA ED BF EF FE EC EC E8 F0 ED FB A5 BF | 45 6E 74 65 72 20 70 61 73 73 77 6F 72 64 3A 20 | Enter password:   |
 
 
 
@@ -716,4 +726,4 @@ Looking back, the biggest time sink was chasing anti-debug “*ghosts*”: a lot
 - **Seeds and globals are tell-tales.** A function that mixes `RDTSC` + `GetTickCount64` and stores a byte to a global is almost certainly feeding into later logic—even if it’s just cosmetic or a red herring in this challenge.
 - **Document as you go.** Writing down calling-convention notes, register cheat sheets, and function definitions along the way made the analysis much easier to follow and will pay off in future crackmes.
 
-Overall, this puzzle was a solid exercise in stepping through real-world MSVC output, reading x64 calling convention “in the wild,” and resisting the urge to overcomplicate things when the core validation logic was relatively straightforward once located.
+Overall, this puzzle was a solid exercise in stepping through real-world *MSVC* output, reading x64 calling convention “in the wild,” and resisting the urge to overcomplicate things when the core validation logic was relatively straightforward once located.
