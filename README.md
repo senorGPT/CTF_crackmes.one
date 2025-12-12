@@ -59,6 +59,18 @@ crackmes.one/
 </details>
 
 <details>
+<summary><b>Biglsim04 - puzzle</b> | Difficulty: 2.5/6.0</summary>
+
+- **Difficulty**: 2.5/6.0
+- **Author**: Biglsim04
+- **Status**: ✅ Solved
+- **Solution**: See `Biglsim04 - puzzle/Biglsim04 - puzzle - Solution.pdf`
+- **Description**: Command-line crackme that hides both its console strings and password check behind a simple XOR-0x9F encoding layer. Using CFF Explorer and Detect It Easy (DIE) for static recon plus x64dbg breakpoints on WriteFile/ReadFile, I traced the input path to a 9-character length check and a character-by-character comparison against an XOR-decoded constant. By NOP-ing the failure branch and single-stepping the comparison loop, I recovered the cleartext password MYPASS123 and confirmed the same XOR-0x9F scheme is used to decode the “Hello World!”, “Enter password:” and “Access Granted/Denied!” strings at runtime.
+- **Date Solved**: 2025-12-11
+
+</details>
+
+<details>
 <summary><b>Coder_90 - KeyGenMeV3</b> | Difficulty: 3.0/6.0</summary>
 
 - **Difficulty**: 3.0/6.0
