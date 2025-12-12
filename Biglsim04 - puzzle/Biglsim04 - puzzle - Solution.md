@@ -1,10 +1,8 @@
-# <Biglsim04 _ puzzle>
-
 # Biglsim04's puzzle — Reverse Engineering Write-up
 
 **Challenge link:** https://crackmes.one/crackme/691de1d12d267f28f69b7f16  
-**Author:** *Biglsim04*  
-**Write-up by:** *SenorGPT*  
+**Author:** *Biglsim04* 
+**Write-up by:** *SenorGPT* 
 **Tools used:** *CFF Explorer, Detect It Easy (DIE), x64dbg*  
 
 | Platform | Difficulty | Quality | Arch | Language |
@@ -13,7 +11,7 @@
 
 ---
 
-## ![cover](C:\Users\david\Desktop\crackmes.one\Biglsim04 - puzzle\cover.png)
+## <center><img src="C:\Users\david\Desktop\crackmes.one\Biglsim04 - puzzle\cover.png" alt="cover" style="zoom: 43%;" /></center>
 
 > **Status:** WIP  
 > **Goal:** Document a clean path from initial recon → locating key-check logic → validation/reversal strategy 
@@ -507,6 +505,14 @@ Time to enter the password `MYPASS123` and see if it is indeed the correct flag.
 
 
 
+It appears that it is loading in the bytes `D2 C6 CF DE CC CC AE AD AC` one byte at a time and xoring it with `0x9F`.
+
+![image-20251211172900928](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211172900928.png)
+
+![image-20251211172537647](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251211172537647.png)
+
+
+
 ---
 
 ## 8. Useful Notes, Reminders, and Definitions
@@ -688,7 +694,7 @@ Each 64-bit register has smaller *views*; Example with `RAX`:
 | **R14** | R14D   | R14W   | R14B      |
 | **R15** | R15D   | R15W   | R15B      |
 
-Important to note that writing to a *32-bit* register, such as `EAX`, *zeroes* the upper 32 bits of the 64-bit register (`RAX`).
+Important note that writing to a *32-bit* register, such as `EAX`, *zeroes* the upper 32 bits of the 64-bit register (`RAX`).
 
 
 
@@ -696,11 +702,18 @@ Important to note that writing to a *32-bit* register, such as `EAX`, *zeroes* t
 
 ## 9. Conclusion
 
-- Summary of final understanding.
-- What you’d improve next time.
-- Optional lessons learned.
+This crackme turned out to be a really nice reminder that “*normal-looking*” console binaries can still hide their logic in slightly unusual places without resorting to heavy packing or obfuscation. Static recon showed a clean *PE* layout, reasonable entropy across all sections, and a modern *MSVC* toolchain with only `KERNEL32.dll` imported, which initially made the target look almost too boring. Dynamic analysis quickly disproved that: the program makes heavy use of `LoadLibraryExW` / `GetProcAddress`, dynamically resolves APIs, builds its console strings at runtime, and seeds a global byte using a mix of `RDTSC` and `GetTickCount64` before dropping into the real validation.
 
+From there, following the input path via `WriteFile` / `ReadFile` and watching the repeated `0x40`-bounded loops eventually led to the heart of the puzzle: a length check enforcing a 9-character password and a tight comparison loop where each user byte is XOR-checked against a pre-decoded constant. By neutralizing the failure branch (`nop`-ing the `jne`) and single-stepping through the comparison, the hidden password `MYPASS123` effectively revealed itself one character at a time.
 
+Looking back, the biggest time sink was chasing anti-debug “*ghosts*”: a lot of effort went into breakpoints on timing APIs and exception handlers that, in this specific challenge, never materially affected the success path. The lesson is not that those checks are unimportant, but that they should be treated as *supporting evidence* rather than the main objective—especially when the goal is simply to recover the flag.
 
-- Spent too much time on anti debugging code when none was really present
-- Wasted a lot of time investigating code that had nothing to do with my end goal of finding the flag
+### 9.1 Lessons Learned
+
+- **Stay goal-oriented.** It’s easy to get lost in potential anti-debug code; keep coming back to “where is input read, where is it validated, and what decides success vs failure?”
+- **Let behaviour guide you.** When strings aren’t referenced statically, use I/O breakpoints and console behaviour (prompts, error messages) to anchor yourself in the code.
+- **Small patterns matter.** Repeated values like `0x40`, recurring loop structures, and consistent register usage are strong hints about array sizes, buffer layouts, and validation loops.
+- **Seeds and globals are tell-tales.** A function that mixes `RDTSC` + `GetTickCount64` and stores a byte to a global is almost certainly feeding into later logic—even if it’s just cosmetic or a red herring in this challenge.
+- **Document as you go.** Writing down calling-convention notes, register cheat sheets, and function definitions along the way made the analysis much easier to follow and will pay off in future crackmes.
+
+Overall, this puzzle was a solid exercise in stepping through real-world MSVC output, reading x64 calling convention “in the wild,” and resisting the urge to overcomplicate things when the core validation logic was relatively straightforward once located.
