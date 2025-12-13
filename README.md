@@ -82,6 +82,18 @@ crackmes.one/
 
 </details>
 
+<details>
+<summary><b>NemesisX - GuessPassword</b> | Difficulty: 3.5/6.0</summary>
+
+- **Difficulty**: 3.5/6.0
+- **Author**: NemesisX
+- **Status**: 🔍 Analyzed
+- **Solution**: See `NemesisX - GuessPassword/NemesisX - GuessPassword - Solution.md`
+- **Description**: Python-based crackme packaged with PyInstaller. Used x64dbg for initial analysis and identified it as a Python executable. Extracted the Python bytecode using pyinstxtractor, then decompiled the `.pyc` file using decompyle3 to recover the source code. The program uses bcrypt (cost factor 12) to hash and validate passwords, storing the hash `$2b$12$pBRbErJA/R.oPinWBAx4buejz59JCDiARNr07zSRrK/1F8jHpMzSm`. Since bcrypt is a one-way hash, implemented a multi-threaded Python bruteforce script with timing, logging, and resume capabilities to attempt password recovery from wordlists. Reverse engineering complete; solution method implemented and running, awaiting brute force completion (limited by computational resources).
+- **Date Analyzed**: 2025-12-12
+
+</details>
+
 ## 🚀 Getting Started
 
 1. Navigate to a challenge directory
