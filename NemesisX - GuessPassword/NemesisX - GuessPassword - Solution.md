@@ -13,7 +13,7 @@
 
 ## <center><img src="C:\Users\david\Desktop\crackmes.one\NemesisX - GuessPassword\cover.png" alt="cover" style="zoom:45%;" /></center>
 
-> **Status:** WIP  
+> **Status:** Completed  
 > **Goal:** Document a clean path from initial recon → locating key-check logic → validation/reversal strategy   
 
 ---
@@ -233,20 +233,10 @@ bp user32.SetWindowLongPtrW;
 I end up going mad with frustration and enabling the following breakpoints as I was running out of ideas:
 
 ```c
-bp kernel32.WriteConsoleOutputCharacterW; bp kernel32.WriteConsoleOutputCharacterA; bp kernel32.WriteConsoleOutputW; bp kernel32.WriteConsoleOutputA; bp kernel32.WriteConsoleOutputAttribute;
+bp kernel32.WriteConsoleOutputCharacterW; bp kernel32.WriteConsoleOutputCharacterA; bp kernel32.WriteConsoleOutputW; bp kernel32.WriteConsoleOutputA; bp kernel32.WriteConsoleOutputAttribute; bp user32.MessageBoxW; bp user32.MessageBoxA; bp user32.DrawTextW; bp user32.DrawTextA; bp gdi32.TextOutW; bp gdi32.TextOutA; bp gdi32.ExtTextOutW; bp gdi32.ExtTextOutA; bp kernel32.ExitProcess; bp kernel32.TerminateProcess; bp ntdll.RtlExitUserProcess;
 ```
 
-```c
-bp user32.MessageBoxW; bp user32.MessageBoxA; bp user32.DrawTextW; bp user32.DrawTextA;
-```
-
-```c
-bp gdi32.TextOutW; bp gdi32.TextOutA; bp gdi32.ExtTextOutW; bp gdi32.ExtTextOutA;
-```
-
-```c
-bp kernel32.ExitProcess; bp kernel32.TerminateProcess; bp ntdll.RtlExitUserProcess;
-```
+Which also got me nowhere...
 
 
 
@@ -307,7 +297,7 @@ After sleeping on it and taking some time away from this *CTF* I came back with 
 
 
 
-First thing to do is to grab a *PyInstaller Extractor*, I find some on *Github* and settle for [pyinstxtractor by extremecoders-re](https://github.com/extremecoders-re/pyinstxtractor). Cloning the repo and moving the `pyinstxtractor.py` file to the directory of the `PE`.
+First thing to do is to grab a *PyInstaller Extractor*. I find some on *Github* and settle for [pyinstxtractor by extremecoders-re](https://github.com/extremecoders-re/pyinstxtractor). Cloning the repo and moving the `pyinstxtractor.py` file into the directory of the `PE`.
 
 Running the command `py pyinstxtractor.py guess-password.exe`:
 
@@ -405,7 +395,7 @@ So it seems that my only option is to brute-force the answer. Time to write some
 
 ## 7. Validation Path
 
-First I have to install [bcrypt]() with:
+I have to install [bcrypt]() first with:
 
 ```bash
 py -m pip install bcrypt
@@ -670,36 +660,36 @@ rightpassword
 yesflag
 noflag</details>
 
-Unfortunately, none of my custom words were the password.
+Unfortunately, none of the words within the custom wordlist were the password.
 
-After letting it run for a few minutes on the `rockyou.txt` wordlist I realize that I might need a faster solution.
+After letting it run for a few minutes on the `rockyou.txt` wordlist I realize that I need a faster solution.
 
 ![image-20251212204015011](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251212204015011.png)
 
-If it takes roughly *174MS* per password check and `rockyou.txt` contains `~14,340,000` passwords. Then that means it will take a ***WHOPPING*** *2,495,160,000MS* = *2,495,160 seconds* = *41,586 minutes* = *693 hours*... ***OR*** a whole ***28 DAYS*** to get through just `rockyou.txt`.
+It takes roughly *174MS* per password check and `rockyou.txt` contains `~14,340,000` passwords. That means it will take a ***WHOPPING*** *2,495,160,000MS* = *2,495,160 seconds* = *41,586 minutes* = *693 hours*... ***OR*** a whole ***28 DAYS*** to get through just `rockyou.txt`.
 
-I rewrite my implementation to utilize threading in order to maximize how fast I am able to hash as to deduce if brute forcing this *CTF* is even worth it.
+I rewrite my implementation to utilize multi-threading in order to maximize the hash per second speed to deduce if brute forcing this *CTF* is even worth it.
 
 ```bash
 # Process directory with 16 threads and log output to file
 py bruteforce.py ./wordlists --threads 16 --log-file rockyou_results.txt
 ```
 
-This has definitely helped increase the speed at which the password hashing and checking is being done at:
+This has definitely helped increase the speed at which the hashing is done at.
 
 ![image-20251212205406202](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251212205406202.png)
 
-So at *78.3* password checks a second, this new version should take *183,198 seconds* = *3,053 minutes* = *50.9 hours*... ***OR*** about ***2.1 DAYS***. A *LOT* better than *28 days* but still not that great.
+So at *78.3* hashes a second, this new version would take *183,198 seconds* = *3,053 minutes* = *50.9 hours*... ***OR*** about ***2.1 DAYS***. A *LOT* better than *28 days*, but still not that great.
 
 
 
 ### 7.1 Speeding Up
 
-I pause the brute force script at *600,000* checks since I realize I am not utilizing my *GPU*. I search around a bit and find an application called [hashcat](https://hashcat.net/hashcat/) which should utilize my *GPU* to brute force the hash. I install it after installing it's requirements; *AMD Adrenalin Drivers* for my *GPU* - which are already installed - and *AMD HIP SDK*.
+I pause the brute force script at *600,000* checks since I realize I am not utilizing my *GPU*. I search around the internet a bit before finding an application named [hashcat](https://hashcat.net/hashcat/). Hashcat should utilize my *GPU* to brute force the hash as well as increase the hashing speed on my *CPU* with their optimizations. For *GPU* utilization `hashcat` has two requirements; *AMD Adrenalin Drivers* for the *GPU* - which are already installed on my machines - and *AMD HIP SDK*.
 
-I create a new file named `hash.txt` in the root directory of my `hashcat` installation and put the found hash inside - `$2b$12$pBRbErJA/R.oPinWBAx4buejz59JCDiARNr07zSRrK/1F8jHpMzSm`. I also copy my wordlist - `rockyou.txt` - into this directory as well.
+I create a new file named `hash.txt` in the root directory of my `hashcat` installation and put the stored hash inside - `$2b$12$pBRbErJA/R.oPinWBAx4buejz59JCDiARNr07zSRrK/1F8jHpMzSm`. I also copy the wordlist - `rockyou.txt` - into this directory as well.
 
-This approach is a good start, but would only utilize my *GPU* when I want both *GPU* and *CPU* to be used. I could just run my *Python* script in parallel but I want everything to be centralized. Thankfully, *hashcat* supports this. I just have to download one more requirement, *Intel OpenCL CPU runtime*.
+This approach is a good start, but would only utilize my *GPU*. I want both *GPU* and *CPU* to be used. I could just run my *Python* script in parallel but I want everything to be centralized AND `hashcat` should offer increased performance from my *CPU* thanks to their optimizations. I just have to download one more requirement; *Intel OpenCL CPU runtime*.
 
 
 
@@ -731,25 +721,19 @@ Keeping it simple I will utilize one *RX 7800 XT + CPU*.
 - `hash.txt` = file with `bcrypt` hash.
 - `rockyou.txt` = target wordlist.
 
-If for some reason you would like to only run your GPU, the command would look something like:
-
-```bash
-./hashcat.exe -m 3200 -a 0 hash.txt rockyou.txt
-```
-
 
 
 Upon running the command I observed that it is crunching away, fast! *183 hashes a second* as opposed to *~80*.
 
 ![image-20251212233809206](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251212233809206.png)
 
-This brings us to *~20 hours 45 minutes more* to finish the rest of `rockyou.txt` wordlist...
+This brings us down to *~20 hours 45 minutes more* to finish the rest of `rockyou.txt` wordlist... Not bad, considering it was *~28 days* before.
 
 
 
 #### 7.1.1 Speeding Up ^2
 
-Whilst this runs on one computer, I set up another computer with roughly the same specs to perform an exhaustive key search on the same *hash*.
+Whilst that runs away on one computer, I set up another computer with roughly the same specs to perform an exhaustive key search on the same *hash*.
 
 ```bash
 ./hashcat.exe -m 3200 -a 3 -D 1,2 -d 1,2 -1 ?l?u?d hash.txt ?1?1?1?1?1
@@ -765,7 +749,11 @@ Whilst this runs on one computer, I set up another computer with roughly the sam
 
 ![image-20251213001442413](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251213001442413.png)
 
-Woah, *916,132,832* is ***WAY*** too many. I change the mask to only accept lowercase characters - `?l?l?l?l?l` -which ends up being *11,881,376* entries. Something more feasible to complete overnight.
+Woah, *916,132,832* is ***WAY*** too many. I change the mask to only accept lowercase characters - `?l?l?l?l?l` -which ends up being *11,881,376* entries. Something more feasible to compute overnight.
+
+
+
+I also tried different smaller masks to see if that provided any results and also no luck. This `crackme` has reached an arbitrary obstacle that might take years to pass. Therefore, I will stop wasting time and resources and move onto another challenge.
 
 
 
@@ -854,7 +842,26 @@ LONG_PTR SetWindowLongPtrW(
 
 ## 9. Findings Log
 
-Although the binary is a console executable, it doesn’t use the standard `ReadConsole`/`ReadFile` APIs. Instead, on start-up it registers a custom window class and creates a (hidden) window, then enters a classic Win32 message loop (`GetMessage`/`DispatchMessage` + `PeekMessageW`). 
+- Although the binary is a console executable, it doesn’t use the standard `ReadConsole`/`ReadFile` APIs. Instead, on start-up it registers a custom window class and creates a hidden PyInstaller window (`"PyInstaller Onefile Hidden Window"`), then enters a classic Win32 message loop (`RegisterClassW` → `CreateWindowExW` → `DispatchMessageW` + repeated `PeekMessageW`).  
+- The apparent “console UI” is just a façade; keyboard input never flows through the usual KERNEL32 console APIs I breakpointed, which explains why none of the `ReadConsole*` / `ReadFile` / `WriteConsole*` breakpoints ever triggered around password entry.  
+- Several `SetWindowLongPtrW` calls are made during initialization, suggesting window procedure / userdata manipulation, but the registered WndProc only handles a tiny set of messages (`WM_CREATE`, `WM_QUERYENDSESSION`, `WM_ENDSESSION`) and forwards everything else to `DefWindowProcW`. No visible password logic or key-handling is implemented there.  
+- Static analysis and unpacking showed the executable is a **PyInstaller one-file bundle**: the “interesting” logic lives in embedded Python bytecode (`.pyc`), and many UI strings are not present as plain PE resources but are created at runtime from the Python side.  
+- Extracting the PyInstaller archive with `pyinstxtractor.py` revealed a `check_password.pyc` module and a bundled `bcrypt` extension, strongly hinting that the password check is delegated to Python code rather than custom native logic.  
+- Decompiling `check_password.pyc` (via PyLingual after local decompilers crashed) produced clear Python source:  
+  - The script imports `bcrypt` and defines a single `STORED_HASH`  
+    `b"$2b$12$pBRbErJA/R.oPinWBAx4buejz59JCDiARNr07zSRrK/1F8jHpMzSm"`.  
+  - `getpass.getpass('Masukkan password: ')` reads the password (hidden input),  
+    and `bcrypt.checkpw(pw, STORED_HASH)` decides the branch:  
+    - success: `Password benar, akses diberikan.`  
+    - failure: `Password salah.`  
+- The bcrypt hash format (`$2b$12$...`) encodes algorithm version, cost factor (`12` = 2¹² iterations), salt, and digest. Because bcrypt is a **one-way, salted password hash**, there is no algebraic “decrypt”; the only practical attack in this CTF context is **offline guessing** (dictionary or brute-force) against the single stored hash. :contentReference[oaicite:0]{index=0}  
+- Initial single-threaded Python brute-force using `bcrypt.checkpw` achieved only ~5–6 H/s; a multithreaded version improved this to ~78.3 H/s, which still translated to ~2.1 days to exhaust `rockyou.txt` (~14.3M candidates).  
+- Migrating the workload to **hashcat** (mode `3200` / bcrypt) and configuring both GPU (RX 7800 XT, device #3) and CPU (Ryzen 7 7800X3D, device #6) as OpenCL devices with:  
+  `./hashcat.exe -m 3200 -a 0 -D 1,2 -d 3,6 --skip=600000 hash.txt rockyou.txt`  
+  raised throughput to ~183 H/s, dropping the estimated time for the remainder of `rockyou.txt` from weeks (initial naive approach) to roughly ~20.7 hours.  
+- A second machine was configured to run **mask-based exhaustive searches** (hashcat `-a 3`) over constrained keyspaces (e.g., 5-character lowercase, `[a–z]` only) using custom charsets, but no hit was found within reasonable mask sizes and runtimes.  
+- At this point the challenge effectively reduced to “find the preimage of a cost-12 bcrypt hash” with no additional structural clues, meaning success depends entirely on the real password being present in a chosen wordlist or a manageable brute-force mask. Given the exploding keyspace for longer mixed-charset passwords, continuing further would have been computationally expensive with low expected payoff.  
+- Final state: the **program logic, control flow, and validation mechanism are fully understood and documented**, but the actual password has not been recovered (so the crackme remains unsolved from a “flag” perspective). From a reverse-engineering standpoint, the goal of understanding “how this thing works” was achieved; the remaining obstacle is pure hash-cracking effort rather than reversing skill.
 
 
 
@@ -862,6 +869,24 @@ Although the binary is a console executable, it doesn’t use the standard `Read
 
 ## 10. Conclusion
 
-- Summary of final understanding.
-- What you’d improve next time.
-- Optional lessons learned.
+This crackme turned out to be less about a clever custom validation routine and more about recognizing what happens when a challenge quietly devolves into **pure password hashing**.
+
+Early on, I approached it like a normal native x64 console target: hunting for `ReadConsole`/`ReadFile` input paths, chasing `USER32` message loops, and poking at `SetWindowLongPtrW` in hopes of catching a hidden *WndProc* that assembled the password buffer. All of those leads either dead-ended in boilerplate *PyInstaller* window glue or generic *Win32* scaffolding. That frustration was actually the main clue: if none of the usual native places contain the logic, it’s probably *not* native code at all.
+
+Recognizing the *PyInstaller* footprint and pivoting to unpack the binary was the turning point. Once the embedded *Python* bytecode was extracted and decompiled the entire “mystery” collapsed into a very short script that simply reads a password using `getpass`, then delegates everything to `bcrypt.checkpw` against a single stored hash. From that moment, there was no bespoke encoding scheme left to reverse; the problem became an *offline bcrypt cracking exercise*.
+
+I explored that route seriously:  
+- first with a custom *Python* wordlist brute-forcer,  
+- then with multithreading,  
+- then by moving to `hashcat` to leverage both *GPU* and *CPU* and tuning the attack with dictionary wordlists (`rockyou.txt` + custom CTF/RE words) and constrained brute-force masks.  
+
+Even with decent hardware and optimized tooling, bcrypt’s cost-12 design and huge keyspace mean there is no guarantee the password is reachable in a reasonable amount of time. Especially if it’s not in common lists or short, structured masks. At some point, the sensible decision in a *CTF* context is to acknowledge that the remaining difficulty is “how much compute are you willing to burn” and not “how sharp is your reversing”.
+
+From this challenge I walked away with a few useful lessons:
+
+- **Always identify the runtime first.** Spotting *PyInstaller* (or other packers) early saves a lot of time staring at irrelevant loader code and message loops.
+- **Not every crackme wants you in the disassembler.** Sometimes the intended solution is to treat the binary as a container, pull out the real high-level code (*Python* in this case), and work there.
+- **Know when a problem turns into pure cryptographic brute-force.** Once you’ve proven “it’s just `bcrypt.checkpw` on a fixed hash,” additional reversing won’t magically shrink the keyspace.
+- **Tooling matters.** I got hands-on practice with *PyInstaller* extraction, `.pyc` decompilation, and practical `hashcat` setup (CPU + GPU, device selection, `--skip`, masks) in a controlled, *CTF*-friendly environment.
+
+I didn’t recover the actual password, but I did achieve the core reverse-engineering objective: map out how the binary is constructed, how control flows from the native loader into *Python*, exactly how the password is ingested and verified, and what the realistic attack surface looks like. For future crackmes, I’ll be quicker to suspect “wrapped *Python*” when the native side feels suspiciously generic, and more deliberate about deciding when to stop throwing cycles at a hash and move on to a challenge that teaches something new.
