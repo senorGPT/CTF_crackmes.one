@@ -159,7 +159,7 @@ Upon searching for string references, it seems that the strings might be encoded
 
 For those that are following along, here is an *x64dbg* command to add all these breakpoints:
 
-```
+```c
 bp kernel32.ReadConsoleW; bp kernel32.ReadConsoleA; bp kernel32.WriteConsoleW; bp kernel32.WriteConsoleA; bp kernel32.ReadFile; bp kernel32.WriteFile; bp kernel32.GetStdHandle; bp kernel32.GetCommandLineA; bp kernel32.GetCommandLineW; bp kernel32.GetProcAddress
 ```
 
@@ -230,25 +230,23 @@ bp user32.SetWindowLongPtrW;
 
 
 
-
+I end up going mad with frustration and enabling the following breakpoints as I was running out of ideas:
 
 ```c
 bp kernel32.WriteConsoleOutputCharacterW; bp kernel32.WriteConsoleOutputCharacterA; bp kernel32.WriteConsoleOutputW; bp kernel32.WriteConsoleOutputA; bp kernel32.WriteConsoleOutputAttribute;
 ```
 
-
-
 ```c
 bp user32.MessageBoxW; bp user32.MessageBoxA; bp user32.DrawTextW; bp user32.DrawTextA;
 ```
 
+```c
+bp gdi32.TextOutW; bp gdi32.TextOutA; bp gdi32.ExtTextOutW; bp gdi32.ExtTextOutA;
+```
 
-
-bp gdi32.TextOutW; bp gdi32.TextOutA; bp gdi32.ExtTextOutW; bp gdi32.ExtTextOutA
-
-
-
+```c
 bp kernel32.ExitProcess; bp kernel32.TerminateProcess; bp ntdll.RtlExitUserProcess;
+```
 
 
 
@@ -299,15 +297,401 @@ Upon initialization, there are three calls made to `SetWindowLongPtrW`.
 
 Things are starting to get frustrating. Every lead I try goes cold. I attempted finding references based on patterns of my input that I entered, finding patterns of known strings when they appeared, finding string references but everything lead to nothing.
 
-The last thing I can think of before I go take a break - BECAUSE NOTHING IS WORKING - is to try going backwards from the termination of the program.
+The last thing I can think of before I go take a break is to try going backwards from the termination of the program.
 
 
+
+### 6.1 Fresh Mind
+
+After sleeping on it and taking some time away from this *CTF* I came back with a clear mind. That's when it occurred to me. I already know that *PyInstaller* was used to build this *PE*. So given that information I can try to unpack and decompile the binary back to just a *Python* script.
+
+
+
+First thing to do is to grab a *PyInstaller Extractor*, I find some on *Github* and settle for [pyinstxtractor by extremecoders-re](https://github.com/extremecoders-re/pyinstxtractor). Cloning the repo and moving the `pyinstxtractor.py` file to the directory of the `PE`.
+
+Running the command `py pyinstxtractor.py guess-password.exe`:
+
+![image-20251212190324686](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251212190324686.png)
+
+It worked! Let's see what we're dealing with.
+
+One file I notice that spikes interest right off the bat is `bcrypt`.
+
+![image-20251212190455197](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251212190455197.png)
+
+Some other *Python* native extension module files to keep note of:
+
+![image-20251212190428172](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251212190428172.png)
+
+The `.pyc` logic files - `check_password.pyc` stands out the most. That must be where the main program logic lives:
+
+![image-20251212190802036](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251212190802036.png)
+
+
+
+### 6.3 Taking a Peek at the Python
+
+I decide to start with `check_password.pyc`. *But*, before proceeding I need to decompile the Python cross-version byte-code (`.pyc`) file utilizing [decompyle3](https://pypi.org/project/decompyle3/).
+
+First to install `decompyle3` with:
+
+```bash
+py -m pip install decompyle3
+```
+
+![image-20251212191901027](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251212191901027.png)
+
+Strange, let's try another decompiler [uncompyle6](https://pypi.org/project/uncompyle6/):
+
+```bash
+py -m pip install uncompyle6
+```
+
+![image-20251212192454698](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251212192454698.png)
+
+I don't want to waste too much time on why these are failing. I utilize an online tool [pylingual](https://pylingual.io/) and it works perfectly. I download the decompiled *Python* file and open it within *VS Code.*
+
+```python
+import bcrypt
+import getpass
+import sys
+STORED_HASH = b'$2b$12$pBRbErJA/R.oPinWBAx4buejz59JCDiARNr07zSRrK/1F8jHpMzSm'
+
+def check_password():
+    try:
+        pw = getpass.getpass('Masukkan password: ').encode()
+    except:
+        print('\nGagal membaca input.')
+        sys.exit(1)
+    try:
+        if bcrypt.checkpw(pw, STORED_HASH):
+            return True
+        return False
+    except:
+        return False
+
+def main():
+    if check_password():
+        print('Password benar, akses diberikan.')
+        return
+    print('Password salah.')
+    sys.exit(2)
+if __name__ == '__main__':
+    main()
+```
+
+
+
+### 6.4 Breaking Down the Python
+
+Instantly I notice the stored hash as well as the `bcrypt` import which is later being used to encode the user input and check the password.
+
+`bcrypt` is a password-hashing algorithm, since it is *one-way* I doubt I will be able to *decrypt* the stored hash.
+
+It's whole purpose is to turn a password into a stored hash that’s hard to brute-force - slow on purpose -, unique per user thanks to a *salt*, and adjustable in cost so you can make it slower as hardware gets faster. It uses the *Blowfish* cipher’s key schedule internally. Takes a password, a randomly generated *salt*, and a *cost factor* (work factor). Then runs a deliberately expensive computation and outputs a 60-char string, like the `STORED_HASH` in `check_password.py`.
+
+The `STORED_HASH` (`$2b$12$pBRbErJA/R.oPinWBAx4buejz59JCDiARNr07zSRrK/1F8jHpMzSm`) already contains the algorithm/version used (`2b`), the cost (`12`), the *salt*, as well as the *resulting hash*.
+When the call to `bcrypt.checkpw(password, stored_hash)` is made, `bcrypt` parses the hash to get the *salt* + *cost* + *digest*.
+
+If the hash matches then the code returns `True`. Which then prints the success branch string `'Password benar, akses diberikan.` (which translates to `Password is correct, access is granted.` in *English*) before terminating the process.
+
+
+
+So it seems that my only option is to brute-force the answer. Time to write some *Python* code.
 
 
 
 ---
 
 ## 7. Validation Path
+
+First I have to install [bcrypt]() with:
+
+```bash
+py -m pip install bcrypt
+```
+
+I whip up some half okay *Python* code that will utilize a word list, as I feel this would be a better spend of resources compared to an exhaustive key search / full brute force.
+(I stripped a bunch of code from this version for readability purposes)
+
+```python
+def load_candidates(path: Path):
+    """Yield password candidates (as bytes) from a wordlist file."""
+    with path.open("rb") as f:  # read as bytes so we don't fight encodings
+        for line in f:
+            line = line.rstrip(b"\r\n")
+            if not line:
+                continue
+            yield line
+
+
+def brute_force(wordlist_path: Path):
+    """Test each candidate against the STORED_HASH."""
+    total = 0
+    for pw in load_candidates(wordlist_path):
+        total += 1
+        if bcrypt.checkpw(pw, STORED_HASH):
+            print(f"[+] Password FOUND: {pw.decode(errors='replace')!r}")
+            return True
+
+        # Optional tiny progress indicator
+        if total % 1000 == 0:
+            print(f"[.] Tried {total} candidates...", end="\r", flush=True)
+
+    print(f"[-] Exhausted wordlist ({total} candidates), no match.")
+    return False
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 2:
+        print(f"Usage: {argv[0]} <wordlist.txt>")
+        return 1
+
+    wordlist_path = Path(argv[1])
+    if not wordlist_path.is_file():
+        print(f"[-] Wordlist not found: {wordlist_path}")
+        return 1
+
+    try:
+        ok = brute_force(wordlist_path)
+    except KeyboardInterrupt:
+        print("\n[!] Aborted by user.")
+        return 130
+
+    return 0 if ok else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))
+```
+
+Time to locate some wordlists!
+A really good resource for wordlists is [Weakpass](https://weakpass.com/wordlists) as they have a whole section of their website dedicated to hosting different wordlists.
+I decide I want to start with the [rockyou.txt](https://weakpass.com/wordlists/rockyou.txt) wordlist, which contains around *14.34 million* passwords! I also add a small list of custom words to a `custom_ctf_wordlist.txt` file that relate specifically to reverse engineering.
+
+<details><summary><strong>Custom CTF / RE Wordlist (click to expand)</strong></summary>ctf
+ctf1
+ctf123
+ctf2024
+ctf2025
+ctftime
+ctfplayer
+ctfplayer1
+ctfplayer123
+capturetheflag
+capture_flag
+capturetheflag123
+capturetheflag2024
+flag
+flag1
+flag123
+flag2024
+flag{test}
+flag{ctf}
+flag{crackme}
+flag{password}
+flag{re}
+flag{reverse}
+flag{this_is_fake}
+flag{guess_me}
+flag{not_the_real_flag}
+flag{you_got_it}
+getflag
+get_the_flag
+give_me_flag
+givemeflag
+gimmeflag
+where_is_flag
+findtheflag
+find_flag
+flaghunter
+flaghunter123
+pwn
+pwned
+pwnme
+pwnthis
+pwnthisctf
+pwn3d
+leet
+l33t
+1337
+1337h4x0r
+h4x0r
+hacker
+hacking
+reverse
+reversing
+reverser
+reverseme
+reverseit
+reverseit123
+reverse_engineer
+reverseengineering
+reverseengineering123
+rev
+rev1
+rev2
+rev3
+rev100
+revctf
+revchallenge
+revchallenge1
+revchallenge2
+crackme
+crackme1
+crackme2
+crackme3
+crackme4
+crackme5
+crackme2024
+crackmes
+crackmes1
+crackmes2
+crackmes3
+crackmesone
+crackmes_one
+crackmesde
+crackmes_de
+crackmesdotde
+crackmesdotone
+crackthis
+crackthis1
+crackthis2
+crackthisnow
+uncrackable
+uncrackable1
+uncrackable2
+nocrack
+reverse_this
+reverse_this_please
+decryptme
+decrypt_me
+decrypt_this
+decompile_me
+decompilethis
+debugme
+debug_me
+debug_this
+x64dbg
+x32dbg
+ida
+idapro
+ida_free
+ghidra
+ghidra1
+ghidra2
+radare
+radare2
+binaryninja
+binja
+ollydbg
+cheatengine
+cheat_engine
+nopthis
+nop_this
+patchme
+patch_me
+patchthis
+patch_this
+patchit
+patch_it
+bruteforce
+bruteforce1
+bruteforce2
+bfattack
+dictionaryattack
+pyinstaller
+pyinst
+pycrackme
+crackpy
+pythoncrackme
+ctfcrackme
+recrackme
+myfirstcrackme
+myfirstctf
+firstctf
+first_crackme
+masuk
+passwordctf
+ctfpassword
+ctfpass
+ctfpass123
+sandi
+sandi123
+passwordbenar
+passwordsalah
+benar123
+salah123
+aksesdiberikan
+aksesditolak
+letmein
+letmein1
+letmein123
+open_sesame
+opensesame
+opensesame123
+trustno1
+trustnoone
+adminctf
+rootctf
+superuser
+sudo
+sudoctf
+challenger
+challenger1
+challenge
+challenge1
+challenge2
+challenge3
+challengeaccepted
+ctfaccepted
+iwanttheflag
+gimmie_the_flag
+showmetheflag
+iamreverse
+iamreverser
+iamhacker
+iam1337
+1337ctf
+1337flag
+password_flag
+password_flag1
+guessme
+guess_password
+guesspassword
+guessmypassword
+check_password
+checkpassword
+validatepassword
+wrong_password
+wrongpassword
+right_password
+rightpassword
+yesflag
+noflag</details>
+
+Unfortunately, none of my custom words were the password.
+
+After letting it run for a few minutes on the `rockyou.txt` wordlist I realize that I might need a faster solution.
+
+![image-20251212204015011](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251212204015011.png)
+
+If it takes roughly *174MS* per password check and `rockyou.txt` contains `~14,340,000` passwords. Then that means it will take a ***WHOPPING*** *2,495,160,000MS* = *2,495,160 seconds* = *41,586 minutes* = *693 hours*... ***OR*** a whole ***28 DAYS*** to get through just `rockyou.txt`.
+
+I rewrite my implementation to utilize threading in order to maximize how fast I am able to hash as to deduce if brute forcing this *CTF* is even worth it.
+
+```bash
+# Process directory with 16 threads and log output to file
+py bruteforce.py ./wordlists --threads 16 --log-file rockyou_results.txt
+```
+
+This has definitely helped increase the speed at which the password hashing and checking is being done at:
+
+![image-20251212205406202](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251212205406202.png)
+
+So at *78.3* password checks a second, this new version should take *183,198 seconds* = *3,053 minutes* = *50.9 hours*... ***OR*** about ***2.1 DAYS***. A *LOT* better than *28 days* but still not that great.
+
+Whilst this runs on one computer, I set up another computer with roughly the same specs to tackle other word lists from [Seclist's Passwords](https://github.com/danielmiessler/SecLists/tree/master/Passwords) folder. I'll report back in a few days - hopefully a lot sooner.
 
 
 
