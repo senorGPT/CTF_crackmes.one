@@ -41,13 +41,26 @@ class TeeOutput:
         self.close()
 
 
-def load_candidates(path: Path):
-    """Yield password candidates (as bytes) from a wordlist file."""
+def load_candidates(path: Path, start_line: int = 0):
+    """Yield password candidates (as bytes) from a wordlist file.
+    
+    Args:
+        path: Path to the wordlist file
+        start_line: Line number to start from (0-indexed, 0 = start from beginning)
+    """
     with path.open("rb") as f:  # read as bytes so we don't fight encodings
+        line_num = 0
         for line in f:
             line = line.rstrip(b"\r\n")
             if not line:
                 continue
+            
+            # Skip lines before start_line
+            if line_num < start_line:
+                line_num += 1
+                continue
+            
+            line_num += 1
             yield line
 
 
@@ -59,8 +72,15 @@ def check_password(pw: bytes, stored_hash: bytes) -> tuple[bool, float]:
     return is_match, check_end - check_start
 
 
-def brute_force(wordlist_path: Path, num_threads: int = None, tee_output=None):
-    """Test each candidate against the STORED_HASH using multiple threads."""
+def brute_force(wordlist_path: Path, num_threads: int = None, tee_output=None, start_line: int = 0):
+    """Test each candidate against the STORED_HASH using multiple threads.
+    
+    Args:
+        wordlist_path: Path to the wordlist file
+        num_threads: Number of threads to use
+        tee_output: Output function for logging (or None for print)
+        start_line: Line number to start from (0-indexed)
+    """
     if num_threads is None:
         # Default to number of CPU cores, but cap at reasonable limit
         import os
@@ -76,16 +96,22 @@ def brute_force(wordlist_path: Path, num_threads: int = None, tee_output=None):
     last_progress_time = start_time
     
     # Load all candidates into a list (for progress tracking)
-    candidates = list(load_candidates(wordlist_path))
+    candidates = list(load_candidates(wordlist_path, start_line))
     total_candidates = len(candidates)
     
     if total_candidates == 0:
         output = tee_output if tee_output else print
-        output(f"[-] Wordlist {wordlist_path.name} is empty")
+        if start_line > 0:
+            output(f"[-] Wordlist {wordlist_path.name} has no candidates after line {start_line}")
+        else:
+            output(f"[-] Wordlist {wordlist_path.name} is empty")
         return False
     
     output = tee_output if tee_output else print
-    output(f"[+] Starting brute force with {num_threads} thread(s) on {total_candidates} candidates...")
+    if start_line > 0:
+        output(f"[+] Starting brute force with {num_threads} thread(s) on {total_candidates} candidates (starting from line {start_line + 1})...")
+    else:
+        output(f"[+] Starting brute force with {num_threads} thread(s) on {total_candidates} candidates...")
     
     def worker():
         nonlocal found_password, total_checked, check_times
@@ -180,14 +206,16 @@ def brute_force(wordlist_path: Path, num_threads: int = None, tee_output=None):
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
-        print(f"Usage: {argv[0]} <wordlist.txt> or <directory> [--threads N] [--log-file FILE]")
+        print(f"Usage: {argv[0]} <wordlist.txt> or <directory> [--threads N] [--log-file FILE] [--start-line N]")
         print(f"       --threads N: Number of threads to use (default: CPU core count, max 16)")
         print(f"       --log-file FILE: Log file path (default: bruteforce_YYYYMMDD_HHMMSS.log)")
+        print(f"       --start-line N: Start from line N (1-indexed, default: 1)")
         return 1
     
     # Parse optional arguments
     num_threads = None
     log_file = None
+    start_line = 0  # 0-indexed internally
     args = []
     i = 1
     while i < len(argv):
@@ -204,12 +232,23 @@ def main(argv: list[str]) -> int:
         elif argv[i] == "--log-file" and i + 1 < len(argv):
             log_file = Path(argv[i + 1])
             i += 2
+        elif argv[i] == "--start-line" and i + 1 < len(argv):
+            try:
+                start_line_input = int(argv[i + 1])
+                if start_line_input < 1:
+                    print(f"[-] Start line must be at least 1")
+                    return 1
+                start_line = start_line_input - 1  # Convert to 0-indexed
+                i += 2
+            except ValueError:
+                print(f"[-] Invalid start line: {argv[i + 1]}")
+                return 1
         else:
             args.append(argv[i])
             i += 1
     
     if len(args) != 1:
-        print(f"Usage: {argv[0]} <wordlist.txt> or <directory> [--threads N] [--log-file FILE]")
+        print(f"Usage: {argv[0]} <wordlist.txt> or <directory> [--threads N] [--log-file FILE] [--start-line N]")
         return 1
 
     input_path = Path(args[0])
@@ -252,7 +291,7 @@ def main(argv: list[str]) -> int:
                     if len(wordlist_files) > 1:
                         tee.write(f"\n[+] Processing wordlist {i}/{len(wordlist_files)}: {wordlist_path.name}")
                     
-                    ok = brute_force(wordlist_path, num_threads, tee_output)
+                    ok = brute_force(wordlist_path, num_threads, tee_output, start_line)
                     if ok:
                         result = 0  # Password found, exit successfully
                         break
