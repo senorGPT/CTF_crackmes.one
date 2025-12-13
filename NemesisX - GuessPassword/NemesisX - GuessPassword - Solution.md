@@ -691,7 +691,61 @@ This has definitely helped increase the speed at which the password hashing and 
 
 So at *78.3* password checks a second, this new version should take *183,198 seconds* = *3,053 minutes* = *50.9 hours*... ***OR*** about ***2.1 DAYS***. A *LOT* better than *28 days* but still not that great.
 
-Whilst this runs on one computer, I set up another computer with roughly the same specs to tackle other word lists from [Seclist's Passwords](https://github.com/danielmiessler/SecLists/tree/master/Passwords) folder. I'll report back in a few days - hopefully a lot sooner.
+
+
+### 7.1 Speeding Up
+
+I pause the brute force script at *600,000* checks since I realize I am not utilizing my *GPU*. I search around a bit and find an application called [hashcat](https://hashcat.net/hashcat/) which should utilize my *GPU* to brute force the hash. I install it after installing it's requirements; *AMD Adrenalin Drivers* for my *GPU* - which are already installed - and *AMD HID SDK*.
+
+I create a new file named `hash.txt` in the root directory of my `hashcat` installation and put the found hash inside - `$2b$12$pBRbErJA/R.oPinWBAx4buejz59JCDiARNr07zSRrK/1F8jHpMzSm`. I also copy my wordlist - `rockyou.txt` - into this directory as well.
+
+This approach is a good start, but would only utilize my *GPU* when I want both *GPU* and *CPU* to be used. I could just run my *Python* script in parallel but I want everything to be centralized. Thankfully, *hashcat* supports this. I just have to download one more requirement, *Intel OpenCL CPU runtime*.
+
+
+
+First things first is to run an information command to display compute devices:
+
+```bash
+./hashcat.exe -I
+```
+
+This will display a ton of information on the computer specifications. A quick map of what I'm working with:
+
+- **GPU**: RX 7800 XT → OpenCL devices **#03** and **#04** (same card via two platforms)
+- **iGPU**: “AMD Radeon(TM) Graphics” → device **#05**
+- **CPU**: Ryzen 7 7800X3D → device **#06**, type = CPU
+
+Keeping it simple I will utilize one *RX 7800 XT + CPU*.
+
+```bash
+./hashcat.exe -m 3200 -a 0 -D 1,2 -d 3,6 --skip=600000 hash.txt rockyou.txt
+```
+
+- `-m 3200` = `bcrypt` mode
+- `-a 0` = straight dictionary attack
+- `-D 1,2` = allow *CPU (1)* + *GPU (2)* device types
+- `-d 3,6` = specifically pick:
+  - 3 = RX 7800 XT (OpenCL Platform #1, Device #03)
+  - 6 = CPU (OpenCL Platform #3, Device #06)
+- `--skip=600000` = *OPTIONAL* - I added this since my *Python* script already processed *600,000* entries.
+- `hash.txt` = file with `bcrypt` hash
+- `rockyou.txt` = target wordlist
+
+If for some reason you would like to only run your GPU, the command would look something like:
+
+```bash
+./hashcat.exe -m 3200 -a 0 hash.txt rockyou.txt
+```
+
+
+
+Upon running the command I observed that it is crunching away, fast! *183 hashes a second* as opposed to *~80*.
+
+![image-20251212233809206](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251212233809206.png)
+
+This brings us to *~20 hours 45 minutes more* to finish the rest of `rockyou.txt` wordlist...
+
+Whilst this runs on one computer, I set up another computer with roughly the same specs to tackle other word lists from [Seclist's Passwords](https://github.com/danielmiessler/SecLists/tree/master/Passwords) folder.
 
 
 
@@ -780,7 +834,7 @@ LONG_PTR SetWindowLongPtrW(
 
 ## 9. Findings Log
 
-Although the binary is a console executable, it doesn’t use the standard `ReadConsole`/`ReadFile` APIs. Instead, on startup it registers a custom window class and creates a (hidden) window, then enters a classic Win32 message loop (`GetMessage`/`DispatchMessage` + `PeekMessageW`). By grabbing the `lpfnWndProc` pointer during `RegisterClassW` and breakpoints in the window procedure, I observed password characters being received via `WM_CHAR` messages and pushed into an internal buffer before validation.
+Although the binary is a console executable, it doesn’t use the standard `ReadConsole`/`ReadFile` APIs. Instead, on start-up it registers a custom window class and creates a (hidden) window, then enters a classic Win32 message loop (`GetMessage`/`DispatchMessage` + `PeekMessageW`). 
 
 
 
