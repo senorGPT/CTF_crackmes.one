@@ -3,7 +3,7 @@
 **Challenge link:** https://crackmes.one/crackme/6934194d2d267f28f69b8379  
 **Author:** *NemesisX*  
 **Write-up by:** *SenorGPT*  
-**Tools used:** *x64dbg*  
+**Tools used:** *CFF Explorer* , *x64dbg*
 
 | Platform | Difficulty | Quality | Arch | Language |
 |---|---|---|---|---|
