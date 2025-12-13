@@ -411,7 +411,7 @@ First I have to install [bcrypt]() with:
 py -m pip install bcrypt
 ```
 
-I whip up some half okay *Python* code that will utilize a word list, as I feel this would be a better spend of resources compared to an exhaustive key search / full brute force.
+I whip up some half okay *Python* code that will utilize a word list (dictionary attack), as I feel this would be a better spend of resources compared to an exhaustive key search / full brute force.
 (I stripped a bunch of code from this version for readability purposes)
 
 ```python
@@ -695,7 +695,7 @@ So at *78.3* password checks a second, this new version should take *183,198 sec
 
 ### 7.1 Speeding Up
 
-I pause the brute force script at *600,000* checks since I realize I am not utilizing my *GPU*. I search around a bit and find an application called [hashcat](https://hashcat.net/hashcat/) which should utilize my *GPU* to brute force the hash. I install it after installing it's requirements; *AMD Adrenalin Drivers* for my *GPU* - which are already installed - and *AMD HID SDK*.
+I pause the brute force script at *600,000* checks since I realize I am not utilizing my *GPU*. I search around a bit and find an application called [hashcat](https://hashcat.net/hashcat/) which should utilize my *GPU* to brute force the hash. I install it after installing it's requirements; *AMD Adrenalin Drivers* for my *GPU* - which are already installed - and *AMD HIP SDK*.
 
 I create a new file named `hash.txt` in the root directory of my `hashcat` installation and put the found hash inside - `$2b$12$pBRbErJA/R.oPinWBAx4buejz59JCDiARNr07zSRrK/1F8jHpMzSm`. I also copy my wordlist - `rockyou.txt` - into this directory as well.
 
@@ -721,15 +721,15 @@ Keeping it simple I will utilize one *RX 7800 XT + CPU*.
 ./hashcat.exe -m 3200 -a 0 -D 1,2 -d 3,6 --skip=600000 hash.txt rockyou.txt
 ```
 
-- `-m 3200` = `bcrypt` mode
-- `-a 0` = straight dictionary attack
-- `-D 1,2` = allow *CPU (1)* + *GPU (2)* device types
+- `-m 3200` = `bcrypt` mode.
+- `-a 0` = straight dictionary attack.
+- `-D 1,2` = allow *CPU (1)* + *GPU (2)* device types.
 - `-d 3,6` = specifically pick:
-  - 3 = RX 7800 XT (OpenCL Platform #1, Device #03)
-  - 6 = CPU (OpenCL Platform #3, Device #06)
+  - 3 = RX 7800 XT (OpenCL Platform #1, Device #03).
+  - 6 = CPU (OpenCL Platform #3, Device #06).
 - `--skip=600000` = *OPTIONAL* - I added this since my *Python* script already processed *600,000* entries.
-- `hash.txt` = file with `bcrypt` hash
-- `rockyou.txt` = target wordlist
+- `hash.txt` = file with `bcrypt` hash.
+- `rockyou.txt` = target wordlist.
 
 If for some reason you would like to only run your GPU, the command would look something like:
 
@@ -745,7 +745,27 @@ Upon running the command I observed that it is crunching away, fast! *183 hashes
 
 This brings us to *~20 hours 45 minutes more* to finish the rest of `rockyou.txt` wordlist...
 
-Whilst this runs on one computer, I set up another computer with roughly the same specs to tackle other word lists from [Seclist's Passwords](https://github.com/danielmiessler/SecLists/tree/master/Passwords) folder.
+
+
+#### 7.1.1 Speeding Up ^2
+
+Whilst this runs on one computer, I set up another computer with roughly the same specs to perform an exhaustive key search on the same *hash*.
+
+```bash
+./hashcat.exe -m 3200 -a 3 -D 1,2 -d 1,2 -1 ?l?u?d hash.txt ?1?1?1?1?1
+```
+
+- `-m 3200` = `bcrypt` mode.
+- `-a 3` = mask / brute force attack.
+- `-D 1,2` = allow *CPU (1)* + *GPU (2)* device types.
+- `-d 1,2` = specifically choose device *#01 (GPU)* and *#02 (CPU)* from `./hashcat.exe -I` output.
+- `-1 ?l?u?d` = custom charset `1` = *lowercase + uppercase + digits*.
+- `hast.txt` = file with `bcrypt` hash.
+- `?1?1?1?1?1` = 5 characters wide, each drawn from charset `1` - `[a-zA-Z0-9]`.
+
+![image-20251213001442413](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251213001442413.png)
+
+Woah, *916,132,832* is ***WAY*** too many. I change the mask to only accept lowercase characters - `?l?l?l?l?l` -which ends up being *11,881,376* entries. Something more feasible to complete overnight.
 
 
 
