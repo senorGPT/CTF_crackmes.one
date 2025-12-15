@@ -130,7 +130,7 @@ Double clicking on the string reference for "*Your count points is %d*" brings m
 
 ![image-20251213025954546](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251213025954546.png)
 
-I trace the logic out of the function and land within what appears to just be the `main` function?
+I trace the logic out of the function and land within what appears to be the `main` function?
 
 ![image-20251213031207130](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251213031207130.png)
 
@@ -138,19 +138,70 @@ Restarting program execution and going back into that first function I notice th
 
 ![image-20251213030159338](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251213030159338.png)
 
+Tracing the input logic through stepping through yields little results. For some reason being difficult to find the comparison logic, yet the `main` function logic seems simple. I believe this has to do with the `scanf` wrapper it is utilizing - or I assume it is - to grab the user input.
+
+
+
+## 6. Static Binary Analysis - Ghidra
+
+I guess it is a good of time as any to learn a new tool, `Ghidra`.
+
+*Ghidra* is a free open-source reverse-engineering suite created by the U.S. *National Security Agency* (*NSA*). It’s designed to analyse compiled binaries - EXEs, DLLs, firmware - without running them, using static analysis. In practice that means *Ghidra* takes raw machine code and reconstructs it into human-readable assembly and even *C-like* pseudocode.
+
+Where a debugger like *x64dbg* shows "what the program is doing right now", `Ghidra` focuses on *how the program is built*:
+
+- It identifies functions, cross-references, code vs data, and control flow.
+- It has a built-in decompiler that can turn many functions into *C-style* pseudocode.
+- It lets you rename functions and variables, add comments, define structs, and track how data flows through the program.
+
+This makes it especially useful for understanding complex logic that would be painful to follow step-by-step in a live debugger such as:
+
+- Custom serialization or parsing code
+- Obfuscated control flow
+- Large state machines
+- Library or runtime internals (*scanf/strtol*, *CRT* startup, etc.)
+
+
+
+#### 6.1 Ghidra - String-Driven Entry
+
+I use the `Defined Strings` *Window* shortcut to bring up the found string references.
+
+![image-20251215001522379](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215001522379.png)
+
+![image-20251214232946534](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251214232946534.png)
+
+Once again targeting the `Your count points is %d` string. Double clicking it brings me to where the string definition lives.
+
+![image-20251215001210481](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215001210481.png)
+
+On the right in green text we can see three *cross references* (*XREFS*); `1400001e4`, `printf.constprop.0:14000160c`, and `main:14001192b`. Focusing on the `main` reference, I double click it which brings me to the function logic. My assumption from earlier was correct regarding the `main` function logic,  this assembly matches that of the assembly discovered within [x64dbg](###5.2 String Driven-Entry). Albeit, with some more information thanks to *Ghidra*.
+
+![image-20251215004802416](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215004802416.png)
+
+One of *Ghidra's* superpowers is that it comes with a built-in *decompiler* which turns the *assembly* into *C-like pseudo code*. *Clicking on the `main` function* - *Window* - *Decompile: main*; This opens open a window with the pseudo code.
+
+![image-20251215005714226](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215005714226.png)
+
+This makes it clear that `DAT_140013018` represents the `points`. Let's go ahead and rename it. *Right clicking `DAT_140013018`* - *Edit Label*; I change it to `POINTS`. Now with a more human readable name, it should be a easier to spot and trace when looking at the assembly / pseudo code. *Right clicking `POINTS`* - *References* - *Show References* to Points (shortcut: *CTRL + SHIFT + F*); Opens a window with all references to the `POINTS` variable.
+
+![image-20251215010845947](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215010845947.png)
+
+The second reference `LEA _Argc, [POINTS]` is the instruction from the `main` function we just came from so I ignore it. Clicking on the first reference brings us into another function, which again we aren't seeing for the first time.
+
 
 
 
 
 ---
 
-## 6. Validation Path
+## 7. Validation Path
 
 
 
 ---
 
-## 7. Patch Notes (If Allowed)
+## 8. Patch Notes (If Allowed)
 
 Describe:
 - What you changed (high level).
@@ -161,13 +212,13 @@ Describe:
 
 ---
 
-## 8. Findings Log
+## 9. Findings Log
 
 
 
 ---
 
-## 9. Conclusion
+## 10. Conclusion
 
 - Summary of final understanding.
 - What you’d improve next time.
