@@ -113,19 +113,17 @@ Hypotheses:
 
 ### 5.1 Baseline Run
 
-Starting the program in *x64dbg* yields no immediate or obvious signs of anti-debugging logic.
+Starting the program in *x64dbg* yields no immediate or obvious signs of any anti-debugging logic.
 
 
 
 ### 5.2 String Driven-Entry 
 
-Searching for string references within the target *Portable Executable* (*PE*) yields results.
+Searching for string references within the target *Portable Executable* (*PE*) yields results the following results.
 
 ![image-20251213025131959](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251213025131959.png)
 
-
-
-Double clicking on the string reference for "*Your count points is %d*" brings me into the disassembly view where I start to poke and prod around. I land on some function and add a breakpoint before the first `call` instruction and restart program execution.
+Double clicking on the string reference for "*Your count points is %d*" brings me into the disassembly view where I start to poke and prod around. I land on a function - which looks like a `scanf` wrapper - and add a breakpoint before the first `call` instruction and restart program execution.
 
 ![image-20251213025954546](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251213025954546.png)
 
@@ -133,11 +131,12 @@ I trace the logic out of the function and land within what appears to be the `ma
 
 ![image-20251213031207130](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251213031207130.png)
 
-Restarting program execution and going back into that first function I notice that after the second `call` instruction the string is output to console. I proceed to step into that function.
+Restarting program execution and going back into that first function I notice that after the second `call` instruction the string is output to console. I proceed to step into that `call` instruction.
 
 ![image-20251213030159338](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251213030159338.png)
 
-Tracing the input logic through stepping through yields little results. For some reason being difficult to find the comparison logic, yet the `main` function logic seems simple. I believe this has to do with the `scanf` wrapper it is utilizing - or I assume it is - to grab the user input.
+Tracing the input logic by stepping through yields little to no results. For some reason, being difficult to find the comparison logic ***EVEN THOUGH*** the `main` function logic seems simple.
+I believe this has to do with the hidden trickery that might be going on behind the scenes.
 
 
 
@@ -145,20 +144,15 @@ Tracing the input logic through stepping through yields little results. For some
 
 I guess it is a good of time as any to learn a new tool, `Ghidra`.
 
-*Ghidra* is a free open-source reverse-engineering suite created by the U.S. *National Security Agency* (*NSA*). It’s designed to analyse compiled binaries - EXEs, DLLs, firmware - without running them, using static analysis. In practice that means *Ghidra* takes raw machine code and reconstructs it into human-readable assembly and even *C-like* pseudocode.
+*Ghidra* is a free open-source reverse-engineering suite created by the U.S. *National Security Agency* (*NSA*). It’s designed to analyse compiled binaries - EXEs, DLLs, firmware - without running them. In practice that means *Ghidra* takes raw machine code and reconstructs it into human-readable assembly and even *C-like* pseudocode.
 
-Where a debugger like *x64dbg* shows "what the program is doing right now", `Ghidra` focuses on *how the program is built*:
+Where a debugger like *x64dbg* shows "what the program is doing right now", *Ghidra* focuses on *how the program is built*:
 
 - It identifies functions, cross-references, code vs data, and control flow.
 - It has a built-in decompiler that can turn many functions into *C-style* pseudocode.
 - It lets you rename functions and variables, add comments, define structs, and track how data flows through the program.
 
-This makes it especially useful for understanding complex logic that would be painful to follow step-by-step in a live debugger such as:
-
-- Custom serialization or parsing code
-- Obfuscated control flow
-- Large state machines
-- Library or runtime internals (*scanf/strtol*, *CRT* start-up, etc.)
+This makes it especially useful for understanding complex logic that would be painful to follow step-by-step in a live debugger such as custom serialization or parsing code, obfuscated control flow, large state machines, and library or runtime internals (`scanf/strtol`, *CRT* start-up, etc.).
 
 
 
@@ -226,7 +220,7 @@ I believe that I've been looking at this *crackme* in the wrong way...
 This is a ***patching / poke-the-variable*** challenge and not a ***find-the-correct-input*** kind of challenge... So my take away is:
 
 - *“Use a debugger or hex editor to make the program show points > 0.”*
-- Any way you achieve that (editing the global, patching *printf*, changing the string) is considered a “solve”.
+- Any way you achieve that (editing the global, patching `printf`, changing the string) is considered a “*solve*”.
 
 
 
@@ -272,7 +266,7 @@ I can see that the address of `POINTS` is `0x140013018`. *Ghidra’s* addresses 
 
 This is where I realize I have made a mistake. I was mixing up things from *x64dbg* and *Ghidra*. The address above in *Ghidra* is the format string, not the actual `POINTS` variable. That’s why it lives in `.rdata` and is read-only. I have been chasing another red-herring.
 
-Occam's Razor is a problem-solving principle that states when faced with competing explanations, the simplest one is usually the best.
+*Occam's Razor* is a problem-solving principle that states when faced with competing explanations, the simplest one is usually the best.
 Going back into the `main` function within *Ghidra*, I finally notice it. There is a constant `0.0` being passed into `printf`.
 
 ![image-20251215043724589](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215043724589.png)
@@ -281,7 +275,7 @@ Toggling a breakpoint on the `printf` call within *x64dbg* I confirm that `0` is
 
 ![image-20251215044047046](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215044047046.png)
 
-Modifying `RDX` during execution to `0x99` (153)
+Modifying `RDX` during execution to `0x99` (153):
 
 ![image-20251215044148408](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215044148408.png)
 
@@ -311,12 +305,12 @@ Alternatively, instead of patching the `printf` wrapper, one could patch the `xo
 
 
 
-### 8.2 Learning Something More
+### 8.2 Pushing my Learning
 
 As much fun as I had chasing my own tail this entire challenge, I thought the solution was quite boring.
-So I challenged myself to make a simple *Python* script that would request a number from the user, load the *CTF* executable, pause it, modify the appropriate bytes in memory, resume execution, and have it display correctly.
+So I challenged myself to make a simple *Python* script that would request a number from the user, load the *CTF* executable, suspend it upon entry, modify the appropriate bytes in memory, resume execution, and have it display correctly.
 
-Now that sounds like a fun challenge! First thing is first, I need to obtain a static offset to `xor` instruction within `main`.
+Now that sounds like a fun challenge! First thing is first, I need to obtain a static offset to the `xor` instruction within `main`.
 
 ![image-20251215045654459](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215045654459.png)
 
@@ -616,22 +610,116 @@ To fix this, after placing in our `jmp` instruction we `NOP` out the remaining *
 140011932  E8 A9 FC FE FF             ; call printf (unchanged)
 ```
 
+The NOPs are just *padding* so the bytes between the `jmp` instruction and the next real instruction are valid instructions even if they’re never hit.
 
+Execution now flows:
 
-Why this is safe:
-
-- Execution now flows:
-  - `sub rsp,28`
-  - `call __main`
-  - → **`jmp cave`**
-  - (it never executes the 4 NOPs)
-  - cave code runs
-  - cave does `jmp 140011932` (or wherever you want to resume)
-- The NOPs are just **padding** so the bytes between the `jmp` and the next real instruction are valid instructions (even if they’re never hit).
+- `sub rsp, 28`
+- `call __main`
+- **`jmp cave`**
+- x4 `NOP`s
+- Code cave code runs.
+- Code cave returns to address of choice to resume program execution at desired point.
 
 
 
 #### 8.2.4 Science Isn’t About Why - It’s About This Code Cave
+
+With my new found knowledge, I get to work making life take the lemons back!
+
+I begin with creating the byte code for the assembly I am going to be patching in, starting with the *trampoline* - the `jmp` instruction into the code cave.
+
+```python
+PATCH_CAVE = 0x11955 								# offset to where the code cave will be located
+addr_cave = base + PATCH_CAVE 						# address to the code cave
+patch = b"\xEB" + addr_cave.to_bytes(4, 'little') 	# EB = JMP rel8 (short jump)
+patch += b"\x90\x90\x90\x90"						# add the proceeding 4 NOPs
+```
+
+Continuing on with the code cave. This is where things start to get a little bit more interesting, due to the `lea` instruction.
+
+```python
+
+patch_cave = b"\xBA" + struct.pack("<I", EDX_VALUE & 0xFFFFFFFF)  # mov edx, imm32
+patch_cave += b"\x48\x8D\x0D" + struct.pack("<I", DISP32 & 0xFFFFFFFF) # lea rcx, [rip + DISP32]
+# call printf 
+# jump back to lea before scanf 
+```
+
+In *x64*, this `LEA` instruction uses `RIP` relative addressing meaning it computes an address as `RIP` (next instruction) + a *32-bit* displacement and stores that address in the destination register.
+
+Using the `lea` instruction from the `main` function as an example - `48 8D 0D CE 16 00 00`:
+
+- `48` = `REX.W`  - use 64-bit register.
+
+  - In *x64* many instructions can have a *1-byte* `REX` prefix: `0100WRXB` (binary).
+
+  - **W** = “64-bit operand size”.
+
+  - If **REX.W = 1**, the instruction uses 64-bit registers/operands (e.g., `rcx` instead of `ecx`).
+    So `48` is a REX prefix where **W=1** (and R/X/B=0). That’s why `48 8D ...` becomes a 64-bit `lea`.
+
+- `8D` = `LEA`
+
+- `0D` = ModRM byte for **reg=RCX** and **rm=RIP-relative** (`mod=00, reg=001, rm=101`)
+
+  - **ModRM** is a 1-byte field used by many x86/x64 instructions to specify:
+
+  - **which register** is involved, and/or
+  - **which addressing mode** (register vs memory, plus how to compute the memory address)
+
+  It’s split into 3 bitfields:
+
+  - `mod` (2 bits): addressing form (register vs memory, displacement size)
+  - `reg` (3 bits): a register operand (or opcode extension)
+  - `rm`  (3 bits): another register OR “memory addressing form”
+
+  For your byte `0D` = `0000 1101`:
+
+  - `mod = 00` (memory, no extra disp except special cases)
+  - `reg = 001` (RCX)
+  - `rm  = 101` (**RIP-relative** in 64-bit mode when `mod=00`)
+
+- `CE 16 00 00` = `disp32` *little-endian* (`0x000016CE`).
+  *x86/x64* stores multi-byte integers in *little-endian* meaning *least significant byte first* (the “small end” first).
+
+Notice `disp32` is only *4-bytes* long. The instruction only has room for a *32-bit* displacement (*4-bytes*) and not an *8-byte* absolute address. Meaning the instruction format can’t store a full *64-bit* address. This is done on purpose for a few reasons:
+
+- Keeps instructions smaller, *7-bytes* instead of 10+.
+- It makes code *position-independent - executable/code* (*PIE/PIC*): the module can be loaded at different base addresses (*ASLR*), and the code still finds its data because it’s using “distance from here” rather than a hardcoded absolute address.
+- Lets the compiler reference nearby data in `.rdata` efficiently.
+- In *x64*, you can’t encode a simple `mov rcx, [imm64]` memory operand like in some *x86* patterns; `RIP` relative is the normal way to reference globals/strings.
+
+So whenever you relocate `RIP` relative instructions, you ***MUST*** recompute `disp32`. Remember `RIP` relative addressing uses `RIP` of the ***NEXT*** instruction, ***NOT*** the current one.
+
+In *x64* `lea rcx, [rip + disp32]` is *defined* as:
+\[
+RCX = RIP_{\text{next}} + disp32
+\]
+
+Since
+\[
+RIP_{next} = INSTRUCTION_{address} + INSTRUCTION_{length}
+\]
+Substitute into the first equation:
+\[
+RCX = (INSTRUCTION_{address} + INSTRUCTION_{length}) + disp32
+\]
+
+Solving for `disp32`:
+\[
+disp32 = RCX - (INSTRUCTION_{address} + INSTRUCTION_{length})
+\]
+
+If the goal is for `RCX` to equal the target address, IE: \(RCX = \text{target}\), then:
+\[
+disp32 = TARGET_{address} - (INSTRUCTION_{address} + INSTRUCTION_{length})
+\]
+
+
+
+
+
 
 
 
