@@ -1,0 +1,693 @@
+/* obsidian-dusk — Custom Typora theme
+   Dark, RE-friendly, orange-accented.
+   Folder structure:
+     obsidian-dusk/
+       obsidian-dusk.css
+       obsidian-dusk/  (fonts)
+*/
+
+/* ===== Fonts ===== */
+@font-face {
+  font-family: "Inter";
+  src: url("./obsidian-dusk/Inter_18pt-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("./obsidian-dusk/Inter_18pt-Italic.ttf") format("truetype");
+  font-weight: 400;
+  font-style: italic;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("./obsidian-dusk/Inter_18pt-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("./obsidian-dusk/Inter_18pt-MediumItalic.ttf") format("truetype");
+  font-weight: 500;
+  font-style: italic;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("./obsidian-dusk/Inter_18pt-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("./obsidian-dusk/Inter_18pt-SemiBoldItalic.ttf") format("truetype");
+  font-weight: 600;
+  font-style: italic;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("./obsidian-dusk/Inter_18pt-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("./obsidian-dusk/Inter_18pt-BoldItalic.ttf") format("truetype");
+  font-weight: 700;
+  font-style: italic;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./obsidian-dusk/JetBrainsMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./obsidian-dusk/JetBrainsMono-Italic.ttf") format("truetype");
+  font-weight: 400;
+  font-style: italic;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./obsidian-dusk/JetBrainsMono-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./obsidian-dusk/JetBrainsMono-MediumItalic.ttf") format("truetype");
+  font-weight: 500;
+  font-style: italic;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./obsidian-dusk/JetBrainsMono-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./obsidian-dusk/JetBrainsMono-SemiBoldItalic.ttf") format("truetype");
+  font-weight: 600;
+  font-style: italic;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./obsidian-dusk/JetBrainsMono-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./obsidian-dusk/JetBrainsMono-BoldItalic.ttf") format("truetype");
+  font-weight: 700;
+  font-style: italic;
+}
+
+/* ===== Color Tokens ===== */
+:root {
+  --sl-bg: #111722;
+  --sl-bg-alt: #182131;
+  --sl-text: #e9eef6;
+  --sl-muted: #b9c2d2;
+  --sl-accent: #e05a00;
+  --sl-accent-soft: #ff8a3d;
+  --sl-border: #2b3a52;
+  --sl-code-bg: #12161c;
+  --sl-code-border: #222b38;
+  --sl-table-bg: #141a22;
+  --sl-link: #e86812;
+  --sl-link-hover: #ff9a5a;
+/* ===== Typora UI Variables (per theme docs) ===== */
+--bg-color: #111722;
+--text-color: #e9eef6;
+--md-char-color: #b9c2d2;
+--meta-content-color: #b9c2d2;
+
+--primary-color: #e05a00;
+--primary-btn-border-color: #e05a00;
+--primary-btn-text-color: #111722;
+
+--window-border: 1px solid #2b3a52;
+
+--active-file-bg-color: #182131;
+--active-file-text-color: #e9eef6;
+--active-file-border-color: #e05a00;
+
+--side-bar-bg-color: #182131;
+--item-hover-bg-color: color-mix(in srgb, #e05a00 14%, transparent);
+--item-hover-text-color: #e9eef6;
+
+--monospace: "JetBrains Mono", monospace;
+}
+
+/* ===== Base ===== */
+html, body {
+  background: var(--sl-bg);
+  color: var(--sl-text);
+}
+
+body {
+  font-family: "Inter", sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.1px;
+}
+
+#write {
+  max-width: 980px;
+  padding: 2.2rem 2.4rem;
+  margin: 0 auto;
+  line-height: 1.65;
+  font-size: 16.5px;
+}
+
+p, li {
+  color: var(--sl-text);
+}
+
+strong {
+  font-weight: 600;
+}
+
+/* ===== Headings ===== */
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Inter", sans-serif;
+  font-weight: 700;
+  color: var(--sl-accent);
+  letter-spacing: 0.25px;
+  margin-top: 1.35em;
+  margin-bottom: 0.55em;
+}
+
+/* ===== Links ===== */
+a {
+  color: var(--sl-link);
+  text-decoration: none;
+  border-bottom: 1px dotted rgba(255,255,255,0.16);
+}
+a:hover {
+  color: var(--sl-link-hover);
+  border-bottom-color: var(--sl-link-hover);
+}
+
+/* ===== Selection ===== */
+::selection {
+  background: var(--sl-accent) !important;
+  color: var(--sl-bg) !important;
+}
+#write ::selection {
+  background: var(--sl-accent) !important;
+  color: var(--sl-bg) !important;
+}
+.md-fences ::selection,
+pre ::selection,
+code ::selection {
+  background: var(--sl-accent-soft) !important;
+  color: var(--sl-bg) !important;
+}
+
+/* ===== Inline code ===== */
+code, tt {
+  font-family: "JetBrains Mono", monospace;
+  font-variant-ligatures: none;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.10);
+  padding: 0.08em 0.28em;
+  border-radius: 6px;
+  color: #e8edf6;
+}
+
+/* ===== Fenced code ===== */
+.md-fences,
+pre {
+  background: var(--sl-code-bg) !important;
+  border: 1px solid var(--sl-code-border) !important;
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+  color: var(--sl-text) !important;
+}
+
+.md-fences code,
+pre code {
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  color: var(--sl-text) !important;
+}
+
+/* Ensure any span tokens inside code don't go black */
+.md-fences code span,
+pre code span {
+  color: inherit !important;
+}
+
+/* ===== Syntax highlight overrides (best-effort) ===== */
+.md-fences .hljs,
+pre .hljs {
+  color: var(--sl-text) !important;
+}
+.hljs-params,
+.hljs-variable,
+.hljs-attr,
+.hljs-attribute,
+.hljs-name,
+.hljs-identifier {
+  color: #d6dde8 !important;
+}
+.hljs-type,
+.hljs-keyword,
+.hljs-built_in {
+  color: #f0f4fb !important;
+}
+.hljs-operator,
+.hljs-punctuation {
+  color: #c4ccd9 !important;
+}
+.hljs-string {
+  color: #b9e1ff !important;
+}
+.hljs-number,
+.hljs-literal {
+  color: #ffd6a6 !important;
+}
+
+/* ===== Blockquotes ===== */
+blockquote {
+  border-left: 4px solid var(--sl-accent);
+  background: var(--sl-bg-alt);
+  padding: 0.8rem 1rem;
+  margin: 1.2rem 0;
+  border-radius: 8px;
+  color: var(--sl-muted);
+}
+
+/* ===== Tables ===== */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1rem 0 1.6rem;
+  background: var(--sl-table-bg) !important;
+  border: 1px solid var(--sl-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+th, td {
+  border: 1px solid var(--sl-border);
+  padding: 0.55rem 0.7rem;
+}
+th {
+  color: var(--sl-text);
+  background: rgba(255,255,255,0.04) !important;
+}
+
+/* ===== HR ===== */
+hr {
+  border: 0;
+  border-top: 1px solid var(--sl-border);
+}
+
+/* ===== Task lists ===== */
+.task-list-item input {
+  accent-color: var(--sl-accent);
+}
+
+/* ===== Images ===== */
+img {
+  max-width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--sl-border);
+}
+
+/* ===== Context menus (broad) ===== */
+.context-menu,
+.dropdown-menu,
+.menu,
+.popover,
+.tooltip,
+[role="menu"] {
+  background: var(--sl-bg-alt) !important;
+  color: var(--sl-text) !important;
+  border: 1px solid var(--sl-border) !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35) !important;
+}
+
+.context-menu li,
+.dropdown-menu li,
+.menu li,
+.dropdown-item,
+.menu-item,
+[role="menuitem"] {
+  color: var(--sl-text) !important;
+  background: transparent !important;
+}
+
+.context-menu li:hover,
+.dropdown-menu li:hover,
+.menu li:hover,
+.dropdown-item:hover,
+.menu-item:hover,
+[role="menuitem"]:hover,
+.context-menu li.active,
+.dropdown-item.active,
+[role="menuitem"][aria-selected="true"] {
+  background: rgba(255,106,0,0.14) !important;
+  color: var(--sl-text) !important;
+}
+
+.context-menu hr,
+.dropdown-divider,
+.menu-separator {
+  border-color: var(--sl-border) !important;
+  opacity: 0.7 !important;
+}
+
+/* Quick-action tiles inside context menu */
+.context-menu a,
+.context-menu .btn,
+.context-menu button,
+.context-menu [role="button"],
+.context-menu .tool,
+.context-menu .action,
+.context-menu .item-button,
+.context-menu .icon-button {
+  background: color-mix(in srgb, var(--sl-bg) 60%, var(--sl-bg-alt) 40%) !important;
+  color: var(--sl-text) !important;
+  border: 1px solid var(--sl-border) !important;
+  border-radius: 6px !important;
+}
+.context-menu a:hover,
+.context-menu .btn:hover,
+.context-menu button:hover,
+.context-menu [role="button"]:hover {
+  background: color-mix(in srgb, var(--sl-accent) 16%, var(--sl-bg-alt) 84%) !important;
+  border-color: color-mix(in srgb, var(--sl-accent) 40%, var(--sl-border) 60%) !important;
+}
+.context-menu a > svg,
+.context-menu button > svg,
+.context-menu .btn > svg {
+  fill: currentColor !important;
+  stroke: currentColor !important;
+}
+
+/* ===== Dialogs / modals (best-effort) ===== */
+.modal,
+.modal-dialog,
+.modal-content,
+.modal-header,
+.modal-body,
+.modal-footer,
+.dialog,
+.dialog-content {
+  background: var(--sl-bg-alt) !important;
+  color: var(--sl-text) !important;
+  border-color: var(--sl-border) !important;
+}
+.modal-content *,
+.dialog * {
+  color: inherit;
+}
+
+.btn,
+button {
+  border-radius: 8px;
+}
+
+.btn-primary,
+button.primary,
+button[type="submit"] {
+  background: var(--sl-accent) !important;
+  border: 1px solid rgba(255,106,0,0.55) !important;
+  color: var(--sl-bg) !important;
+}
+
+.btn-default,
+.btn-secondary,
+button.secondary {
+  background: color-mix(in srgb, var(--sl-bg) 75%, var(--sl-bg-alt) 25%) !important;
+  border: 1px solid var(--sl-border) !important;
+  color: var(--sl-text) !important;
+}
+
+.btn:disabled,
+button:disabled {
+  opacity: 0.55 !important;
+}
+
+/* ===== Preferences / Settings window (broad) ===== */
+#preferences,
+#preference,
+.preferences,
+.preference,
+.preference-container,
+.preference-content,
+.preference-panel,
+.settings,
+.settings-container,
+.settings-content,
+.ty-preferences,
+.ty-settings {
+  background: var(--sl-bg) !important;
+  color: var(--sl-text) !important;
+}
+
+#preferences .sidebar,
+.preferences .sidebar,
+.preference .sidebar,
+.settings .sidebar,
+.preference-sidebar,
+.settings-sidebar,
+.side-panel,
+.left-panel {
+  background: var(--sl-bg-alt) !important;
+  color: var(--sl-text) !important;
+  border-right: 1px solid var(--sl-border) !important;
+}
+
+#preferences h1, #preferences h2, #preferences h3,
+.preferences h1, .preferences h2, .preferences h3,
+.preference h1, .preference h2, .preference h3,
+.settings h1, .settings h2, .settings h3 {
+  color: var(--sl-accent) !important;
+}
+
+#preferences input, #preferences select, #preferences textarea,
+.preferences input, .preferences select, .preferences textarea,
+.preference input, .preference select, .preference textarea,
+.settings input, .settings select, .settings textarea {
+  background: color-mix(in srgb, var(--sl-bg) 70%, var(--sl-bg-alt) 30%) !important;
+  color: var(--sl-text) !important;
+  border: 1px solid var(--sl-border) !important;
+}
+
+#preferences input[type="checkbox"],
+#preferences input[type="radio"],
+.preferences input[type="checkbox"],
+.preferences input[type="radio"] {
+  accent-color: var(--sl-accent) !important;
+}
+
+#preferences button,
+.preferences button,
+.preference button,
+.settings button {
+  background: color-mix(in srgb, var(--sl-bg) 65%, var(--sl-bg-alt) 35%) !important;
+  color: var(--sl-text) !important;
+  border: 1px solid var(--sl-border) !important;
+  border-radius: 6px !important;
+}
+
+#preferences button:hover,
+.preferences button:hover,
+.preference button:hover,
+.settings button:hover {
+  background: color-mix(in srgb, var(--sl-accent) 14%, var(--sl-bg-alt) 86%) !important;
+  border-color: color-mix(in srgb, var(--sl-accent) 40%, var(--sl-border) 60%) !important;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(255,106,0,0.6) !important;
+  outline-offset: 2px;
+}
+
+/* ===== Preferences legibility helper =====
+   If your build uses Typora's default preference HTML, these variables
+   plus the following broad rules should lock in dark mode.
+*/
+#preferences, .preferences, .ty-preferences, .ty-settings {
+  background: var(--bg-color) !important;
+  color: var(--text-color) !important;
+}
+#preferences .sidebar, .preferences .sidebar {
+  background: var(--side-bar-bg-color) !important;
+  color: var(--text-color) !important;
+  border-right: var(--window-border) !important;
+}
+#preferences input, #preferences select, #preferences textarea,
+.preferences input, .preferences select, .preferences textarea {
+  background: color-mix(in srgb, var(--bg-color) 70%, var(--side-bar-bg-color) 30%) !important;
+  color: var(--text-color) !important;
+  border: 1px solid color-mix(in srgb, var(--text-color) 18%, transparent) !important;
+}
+
+/* ===== Fix v11: only CodeMirror variable names → light grey =====
+   You observed only the variable name token was too dark inside fenced code.
+   Keep everything else as-is and lift ONLY cm-variable tokens.
+*/
+
+.cm-s-inner {
+  background-color: #263238;
+  color: rgba(233, 237, 237, 1);
+}
+.cm-s-inner .CodeMirror-gutters {
+  background: #263238;
+  color: rgb(83,127,126);
+  border: none;
+}
+.cm-s-inner .CodeMirror-guttermarker, .cm-s-inner .CodeMirror-guttermarker-subtle, .cm-s-inner .CodeMirror-linenumber { color: rgb(83,127,126); }
+.cm-s-inner .CodeMirror-cursor { border-left: 1px solid #f8f8f0; }
+.cm-s-inner div.CodeMirror-selected { background: rgba(255, 255, 255, 0.15); }
+.cm-s-inner.CodeMirror-focused div.CodeMirror-selected { background: rgba(255, 255, 255, 0.10); }
+.cm-s-inner .CodeMirror-line::selection, .cm-s-inner .CodeMirror-line > span::selection, .cm-s-inner .CodeMirror-line > span > span::selection { background: rgba(255, 255, 255, 0.10); }
+.cm-s-inner .CodeMirror-line::-moz-selection, .cm-s-inner .CodeMirror-line > span::-moz-selection, .cm-s-inner .CodeMirror-line > span > span::-moz-selection { background: rgba(255, 255, 255, 0.10); }
+
+.cm-s-inner .CodeMirror-activeline-background { background: rgba(0, 0, 0, 0); }
+.cm-s-inner .cm-keyword { color: rgba(199, 146, 234, 1); }
+.cm-s-inner .cm-operator { color: rgba(233, 237, 237, 1); }
+.cm-s-inner .cm-variable-2 { color: #80CBC4; }
+.cm-s-inner .cm-variable-3 { color: #82B1FF; }
+.cm-s-inner .cm-builtin { color: #DECB6B; }
+.cm-s-inner .cm-atom { color: #F77669; }
+.cm-s-inner .cm-number { color: #F77669; }
+.cm-s-inner .cm-def { color: rgba(233, 237, 237, 1); }
+.cm-s-inner .cm-string { color: #C3E88D; }
+.cm-s-inner .cm-string-2 { color: #80CBC4; }
+.cm-s-inner .cm-comment { color: #546E7A; }
+.cm-s-inner .cm-variable { color: #82B1FF; }
+.cm-s-inner .cm-tag { color: #80CBC4; }
+.cm-s-inner .cm-meta { color: #80CBC4; }
+.cm-s-inner .cm-attribute { color: #FFCB6B; }
+.cm-s-inner .cm-property { color: #80CBAE; }
+.cm-s-inner .cm-qualifier { color: #DECB6B; }
+.cm-s-inner .cm-variable-3 { color: #DECB6B; }
+.cm-s-inner .cm-tag { color: rgba(255, 83, 112, 1); }
+.cm-s-inner .cm-error {
+  color: rgba(255, 255, 255, 1.0);
+  background-color: #EC5F67;
+}
+.cm-s-inner .CodeMirror-matchingbracket {
+  text-decoration: underline;
+  color: white !important;
+}
+
+/**apply to code fences with plan text**/
+.md-fences {
+  background-color: #263238;
+  color: rgba(233, 237, 237, 1);
+  border: none;
+}
+
+.md-fences .code-tooltip {
+  background-color: #263238;
+}
+
+/* === Selection + hover fixes for Typora UI and code === */
+
+/* 1. Tell Typora what colors to use for selected text and hovered items */
+:root {
+  /* your existing vars are above; we just add these */
+  --select-text-bg-color: rgba(255, 255, 255, 0.14);   /* subtle light overlay */
+  --select-text-font-color: var(--sl-text);
+
+  /* hover color for menus, dropdown items, etc */
+  --item-hover-bg-color: #1b2433;
+  --item-hover-text-color: var(--sl-text);
+
+  /* edit panel for HTML/Math/raw blocks */
+  --rawblock-edit-panel-bd: var(--sl-bg-alt);
+}
+
+/* 2. Global ::selection color (inside the editor, search box, etc.) */
+::selection {
+  background: var(--select-text-bg-color);
+  color: var(--select-text-font-color);
+}
+
+/* 3. Make selection inside fenced code readable (CodeMirror) */
+/* Based on Typora’s Code Block Styles docs, but with dark-theme colors. */
+.cm-s-inner div.CodeMirror-selected,
+.cm-s-inner .CodeMirror-line::selection,
+.cm-s-inner .CodeMirror-line > span::selection,
+.cm-s-inner .CodeMirror-line > span > span::selection,
+.cm-s-inner .CodeMirror-line::-moz-selection,
+.cm-s-inner .CodeMirror-line > span::-moz-selection,
+.cm-s-inner .CodeMirror-line > span > span::-moz-selection {
+  background: rgba(255, 255, 255, 0.12);  /* visible, but not blinding */
+}
+
+/* Also ensure fenced <pre> & inline <code> obey our selection vars */
+pre,
+code {
+  --select-text-bg-color: rgba(255, 255, 255, 0.12);
+  --select-text-font-color: var(--sl-text);
+}
+
+/* 4. Tooltips / dropdown-style overlays on code & HTML blocks */
+#write .code-tooltip,
+.mathjax-block > .code-tooltip,
+div.code-tooltip,
+.md-hover-tip .md-arrow::after {
+  background: var(--sl-bg-alt);
+  color: var(--sl-text);
+  border-color: var(--sl-border);
+}
+
+/* 5. HTML <select> controls so dropdowns don’t flip to bright white */
+#write select,
+#write select option {
+  background: var(--sl-bg-alt);
+  color: var(--sl-text);
+}
+
+/* === Search highlight colors (Ctrl+F) === */
+
+/* 1. Vars for search colors */
+:root {
+  /* non-active matches */
+  --search-hit-bg-color: rgba(255, 138, 61, 0.30);   /* soft orange glow */
+  --search-hit-text-color: var(--sl-text);
+
+  /* currently selected match */
+  --search-select-bg-color: rgba(255, 138, 61, 0.70);
+  --search-select-text-color: #111722;               /* dark text for contrast */
+}
+
+/* 2. Normal search hits in the document */
+.md-search-hit {
+  background-color: var(--search-hit-bg-color);
+  color: var(--search-hit-text-color);
+}
+
+.md-search-hit * {
+  color: inherit;
+}
+
+/* 3. Code blocks / source mode search hits */
+.cm-search-hit {
+  background-color: var(--search-hit-bg-color);
+}
+
+/* 4. The *current* match (the one you’re on) */
+.cm-search-hit.CodeMirror-selectedtext,
+.md-search-hit.md-search-select,
+.md-search-select {
+  background: var(--search-select-bg-color);
+  color: var(--search-select-text-color);
+  text-shadow: none;
+}
+
+/* Ensure same behavior inside fenced code (CodeMirror theme) */
+.cm-s-inner .cm-search-hit.CodeMirror-selected,
+.cm-s-inner .cm-search-hit.CodeMirror-selectedtext {
+  background: var(--search-select-bg-color) !important;
+  color: var(--search-select-text-color) !important;
+}
