@@ -31,8 +31,20 @@ K32.WaitForSingleObject.restype = wt.DWORD
 K32.GetExitCodeProcess.argtypes = [wt.HANDLE, ctypes.POINTER(wt.DWORD)]
 K32.GetExitCodeProcess.restype = wt.BOOL
 
+K32.VirtualAllocEx.argtypes = [wt.HANDLE, wt.LPVOID, SIZE_T, wt.DWORD, wt.DWORD]
+K32.VirtualAllocEx.restype = wt.LPVOID
+
+K32.VirtualFreeEx.argtypes = [wt.HANDLE, wt.LPVOID, SIZE_T, wt.DWORD]
+K32.VirtualFreeEx.restype = wt.BOOL
+
 INFINITE = 0xFFFFFFFF
 STILL_ACTIVE = 259
+
+MEM_COMMIT = 0x1000
+MEM_RESERVE = 0x2000
+MEM_RELEASE = 0x8000
+
+PAGE_EXECUTE_READWRITE = 0x40
 
 
 def die(msg: str) -> None:
@@ -195,6 +207,52 @@ def launch_suspended(exe: Path) -> tuple[int, int, int]:
     if not ok:
         die("CreateProcessW(CREATE_SUSPENDED) failed")
     return int(pi.dwProcessId), int(pi.hProcess), int(pi.hThread)
+
+
+def virtual_alloc_ex(hproc: int, size: int, *, preferred_addr: int = 0, protect: int = PAGE_EXECUTE_READWRITE) -> int:
+    """
+    Allocate memory in the remote process (RWX by default).
+
+    Returns the allocated base address as an int (0 on failure will raise).
+    """
+    addr = K32.VirtualAllocEx(
+        wt.HANDLE(hproc),
+        wt.LPVOID(preferred_addr) if preferred_addr else None,
+        SIZE_T(size),
+        MEM_RESERVE | MEM_COMMIT,
+        wt.DWORD(protect),
+    )
+    if not addr:
+        die("VirtualAllocEx failed")
+    return int(addr)
+
+
+def virtual_free_ex(hproc: int, addr: int) -> None:
+    """Free memory previously allocated in the remote process."""
+    ok = K32.VirtualFreeEx(wt.HANDLE(hproc), wt.LPVOID(addr), SIZE_T(0), wt.DWORD(MEM_RELEASE))
+    if not ok:
+        die("VirtualFreeEx failed")
+
+
+def alloc_code_cave_near(hproc: int, near_addr: int, size: int, *, max_steps: int = 4096, step: int = 0x10000) -> int:
+    """
+    Try to allocate an executable "code cave" within rel32 reach of `near_addr`.
+
+    Many patches use `jmp rel32` (±2 GiB). This helper tries a series of preferred
+    addresses around `near_addr` (both forward and backward) until VirtualAllocEx
+    succeeds.
+    """
+    # rel32 max: +/- 0x7FFF_FFFF from next instruction; we search in a smaller window for speed.
+    for i in range(max_steps):
+        delta = i * step
+        for cand in (near_addr + delta, near_addr - delta):
+            try:
+                return virtual_alloc_ex(hproc, size, preferred_addr=cand, protect=PAGE_EXECUTE_READWRITE)
+            except OSError:
+                # keep trying
+                continue
+    # Fallback: anywhere (may be out of rel32 range; caller should check)
+    return virtual_alloc_ex(hproc, size, preferred_addr=0, protect=PAGE_EXECUTE_READWRITE)
 
 
 # Backwards-compatible aliases

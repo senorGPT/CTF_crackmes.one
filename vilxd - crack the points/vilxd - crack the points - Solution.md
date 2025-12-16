@@ -816,6 +816,112 @@ To fix the return bug I adjust `RETURN_RVA` from `0x11932` to `0x11937`. This sh
 
 I realize I am breaking the *Win64 Calling Convention* by doing `sub rsp, 0x28` inside the *code cave*. I remove the bytes I added for the `add` and `sub` instructions. The *prologue* to `main` already allocates *shadow space* (`0x20`) and fixes alignment. So at at the *code cave* `RSP` is already in the correct state for calls.
 
+After a LOT of debugging, testing, and failing. I finally get the result I want. I was having SO MANY issues because of the memory space that I chose and I did not understand that it looked clear but it was actually data, possible an address that was being loaded. The worst part was that when I would load the bytes provided by my pyton script into x64dbg i would see it functioning correctly.
+
+```bash
+$ py ./simple_trainer.py 
+[+] PID:        6744
+[+] ImageBase:   0x00007FF6D87A0000
+[+] PatchSite:   RVA 0x11929 -> VA 0x00007FF6D87B1929
+[+] CodeCave:    VA  0x00007FF6D87C0000  (VirtualAllocEx)
+[+] Return:      RVA 0x11937 -> VA 0x00007FF6D87B1937
+[+] FormatStr:   RVA 0x13000 -> VA 0x00007FF6D87B3000
+[+] PrintF:      RVA 0x15E0  -> VA 0x00007FF6D87A15E0
+[+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
+    0x00007FF6D87B1920: 48 83 EC 28 E8 1E FE FE FF 31 D2 48 8D 0D CE 16
+    0x00007FF6D87B1930: 00 00 E8 A9 FC FE FF 48 8D 0D DA 16 00 00 E8 ED
+    0x00007FF6D87B1940: FC FE FF 31 C0 48
+[?] .data Flag Byte:  b'\x00'
+[+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
+    0x00007FF6D87B1920: 48 83 EC 28 E8 1E FE FE FF E9 D2 E6 00 00 90 90
+    0x00007FF6D87B1930: 90 90 E8 A9 FC FE FF 48 8D 0D DA 16 00 00 E8 ED
+    0x00007FF6D87B1940: FC FE FF 31 C0 48
+[+] Trampoline (9 bytes):
+[+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
+    0x00007FF6D87B1920: 48 83 EC 28 E8 1E FE FE FF E9 D2 E6 00 00 90 90
+    0x00007FF6D87B1930: 90 90 E8 A9 FC FE FF 48 8D 0D DA 16 00 00 E8 ED
+    0x00007FF6D87B1940: FC FE FF 31 C0 48
+[+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
+    0x00007FF6D87B1920: 48 83 EC 28 E8 1E FE FE FF E9 D2 E6 00 00 90 90
+    0x00007FF6D87B1930: 90 90 E8 A9 FC FE FF 48 8D 0D DA 16 00 00 E8 ED
+[+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
+    0x00007FF6D87B1920: 48 83 EC 28 E8 1E FE FE FF E9 D2 E6 00 00 90 90
+[+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
+[+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
+    0x00007FF6D87B1920: 48 83 EC 28 E8 1E FE FE FF E9 D2 E6 00 00 90 90
+    0x00007FF6D87B1930: 90 90 E8 A9 FC FE FF 48 8D 0D DA 16 00 00 E8 ED
+    0x00007FF6D87B1940: FC FE FF 31 C0 48
+[+] Trampoline (9 bytes):
+    Old: 31 D2 48 8D 0D CE 16 00 00
+    New: E9 D2 E6 00 00 90 90 90 90
+[+] CodeCave Stub (25 bytes):
+    Old: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    New: BA 63 00 00 00 48 B9 00 30 7B D8 F6 7F 00 00 E8 CC 15 FE FF E9 1E 19 FF FF
+[+] Resuming.
+Your count points is 99
+```
+
+Patching in x64dbg worked because the program was already initialized and the debugger can mask memory-protection issues. My trainer patched a process before initialization; after resume, the loader’s final page protections made my chosen ‘flag byte’ non-writable at runtime, so the cave’s `mov [addr],1` crashed with `0xC0000005`. Allocating memory with `VirtualAllocEx` fixed it by providing a guaranteed writable region that isn’t affected by PE section protections.
+
+
+
+Old approach (“code cave at RVA 0x11955”): you were overwriting bytes inside the module’s .text section assuming they were padding. Your dumps show that region likely contains real data embedded in code (e.g., a pointer-looking qword), so overwriting it can break unrelated logic and cause 0xC0000005 crashes before your trampoline ever runs.
+
+New approach (“real cave via VirtualAllocEx”): you place your stub in a fresh, private RWX page owned by the process. You’re no longer corrupting the module’s code/data, so the only behavior change should be the one you intentionally introduced (the trampoline jump).
+
+VirtualQueryEx
+
+**“Tell me what’s already there.”**
+ It *doesn’t change memory*. It just **inspects** a region in the remote process and returns info like:
+
+- base address of the region
+- size of the region
+- state (MEM_COMMIT / MEM_RESERVE / MEM_FREE)
+- protection (PAGE_READWRITE, PAGE_EXECUTE_READ, PAGE_GUARD, etc.)
+
+Use it when you want to answer:
+
+- “Is `addr_flag` actually writable?”
+- “What page is this address in?”
+- “Is this address even committed memory?”
+
+That’s how you diagnose why `mov byte ptr [rax], 1` might crash with `0xC0000005`.
+
+VirtualAllocEx
+
+**“Give me new memory.”**
+ It *does change memory*. It **allocates** memory inside the remote process, and you can choose the protection.
+
+Use it when you want:
+
+- a guaranteed **RW** scratch area for your flag byte
+- a safe buffer for strings, shellcode, etc.
+
+This is the “stop guessing about .data RVAs” option.
+
+------
+
+Which should you use for your situation?
+
+Do both, in this order:
+
+1) Use **VirtualQueryEx** to debug your current `addr_flag`
+
+If it reports not writable (or has GUARD / NOACCESS), your `mov [rax],1` will crash.
+
+2) Use **VirtualAllocEx** to *avoid the problem entirely*
+
+Allocate one RW page, store your flag there, and point your cave at it. This is the most reliable approach.
+
+------
+
+Tiny rule of thumb
+
+- **VirtualQueryEx** = *diagnose / verify* memory properties
+- **VirtualAllocEx** = *create* a safe place to write
+
+
+
 
 
 ---
