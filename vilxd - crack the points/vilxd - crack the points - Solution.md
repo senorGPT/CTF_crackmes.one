@@ -627,23 +627,68 @@ Execution now flows:
 
 With my new found knowledge, I get to work making life take the lemons back!
 
+Some helper functions to make life a bit more simple:
+
+```python
+def jmp_rel32(src: int, dst: int) -> bytes:
+    """Encode `jmp rel32` from absolute VA `src` to absolute VA `dst`."""
+    disp = dst - (src + 5)
+    return b"\xE9" + struct.pack("<i", disp)
+    
+
+def call_iat_rip(iat_va: int, call_insn_va: int) -> bytes:
+    """Encode `call qword ptr [rip+disp32]` where RIP is `call_insn_va + 6`."""
+    disp = iat_va - (call_insn_va + 6)
+    return b"\xFF\x15" + struct.pack("<i", disp)
+
+
+def call_rel32(src: int, dst: int) -> bytes:
+    disp = dst - (src + 5)
+    return b"\xE8" + struct.pack("<i", disp)
+```
+
+
+
 I begin with creating the byte code for the assembly I am going to be patching in, starting with the *trampoline* - the `jmp` instruction into the code cave.
 
 ```python
 PATCH_CAVE = 0x11955 								# offset to where the code cave will be located
 addr_cave = base + PATCH_CAVE 						# address to the code cave
-patch = b"\xEB" + addr_cave.to_bytes(4, 'little') 	# EB = JMP rel8 (short jump)
+patch = jmp_rel32(addr, addr_cave) 					# EB = JMP rel8 (short jump)
 patch += b"\x90\x90\x90\x90"						# add the proceeding 4 NOPs
 ```
 
 Continuing on with the code cave. This is where things start to get a little bit more interesting, due to the `lea` instruction.
 
 ```python
+# Return after cave: instruction immediately after the 9-byte overwrite.
+# You showed the console-print call at RVA 0x11932, and 0x11929 + 9 == 0x11932.
+RETURN_RVA = 0x11932
+# printf format string RVA ("Your count points is %d").
+PRINTF_FORMAT_RVA = 0x13000
+# printf IAT slot RVA (the slot contains the imported function pointer).
+PRINTF_IAT_RVA = 0x15DF
+
+addr_return = base + RETURN_RVA  # return VA
+addr_str = base + PRINTF_FORMAT_RVA  # printf format string VA
+addr_printf_wrapper = base + PRINTF_IAT_RVA  # printf IAT slot VA (contains pointer to printf)
 
 patch_cave = b"\xBA" + struct.pack("<I", EDX_VALUE & 0xFFFFFFFF)  # mov edx, imm32
-patch_cave += b"\x48\x8D\x0D" + struct.pack("<I", DISP32 & 0xFFFFFFFF) # lea rcx, [rip + DISP32]
-# call printf 
-# jump back to lea before scanf 
+patch_cave += b"\x48\xB9" + struct.pack("<Q", addr_str)  # mov rcx, imm64 (absolute VA)
+
+# sub rsp, 0x28 (4 bytes)
+patch_cave += b"\x48\x83\xEC\x28"
+
+# call qword ptr [rip+disp32] to printf IAT (6 bytes)
+call_addr = addr_cave + len(patch_cave)
+patch_cave += call_rel32(call_addr, addr_printf_wrapper + 1)
+
+# add rsp, 0x28 (4 bytes)
+patch_cave += b"\x48\x83\xC4\x28"
+
+# jmp back to original flow (5 bytes)
+jmp_back_addr = addr_cave + len(patch_cave)
+patch_cave += jmp_rel32(jmp_back_addr, addr_return)
 ```
 
 In *x64*, this `LEA` instruction uses `RIP` relative addressing meaning it computes an address as `RIP` (next instruction) + a *32-bit* displacement and stores that address in the destination register.
@@ -717,11 +762,59 @@ disp32 = TARGET_{address} - (INSTRUCTION_{address} + INSTRUCTION_{length})
 \]
 
 
+Running the *Python* script produces the following results:
+
+```bash
+$ py ./simple_trainer.py 
+[+] PID:        6684
+[+] ImageBase:   0x00007FF6D87A0000
+[+] PatchSite:   RVA 0x11929 -> VA 0x00007FF6D87B1929
+[+] CodeCave:    RVA 0x11955 -> VA 0x00007FF6D87B1955
+[+] Return:      RVA 0x11932 -> VA 0x00007FF6D87B1932
+[+] FormatStr:   RVA 0x13000 -> VA 0x00007FF6D87B3000
+[+] PrintF:      RVA 0x15DF -> VA 0x00007FF6D87A15DF
+[+] EDX_VALUE:   99
+[+] Trampoline (9 bytes):
+    Old: 31 D2 48 8D 0D CE 16 00 00
+    New: E9 27 00 00 00 90 90 90 90
+[+] CodeCave stub (33 bytes):
+    Old: 90 90 90 90 90 90 90 90 90 90 90 FF FF FF FF FF FF FF FF 50 19 7B D8 F6 7F 00 00 00 00 00 00 00 00
+    New: BA 63 00 00 00 48 B9 00 30 7B D8 F6 7F 00 00 48 83 EC 28 E8 73 FC FE FF 48 83 C4 28 E9 BC FF FF FF
+[+] Writing code cave stub...
+[+] Writing trampoline...
+[+] Sanity check (still suspended): sleeping 0.25s then re-reading patch sites...
+[+] PatchSite intact: True
+[+] CodeCave intact:  True
+[+] Dumping bytes: base+0x11920 -> base+0x11976 (87 bytes)
+    0x00007FF6D87B1920: 48 83 EC 28 E8 1E FE FE FF E9 27 00 00 00 90 90
+    0x00007FF6D87B1930: 90 90 E8 A9 FC FE FF 48 8D 0D DA 16 00 00 E8 ED
+    0x00007FF6D87B1940: FC FE FF 31 C0 48 83 C4 28 C3 90 90 90 90 90 90
+    0x00007FF6D87B1950: E9 6B FC FE FF BA 63 00 00 00 48 B9 00 30 7B D8
+    0x00007FF6D87B1960: F6 7F 00 00 48 83 EC 28 E8 73 FC FE FF 48 83 C4
+    0x00007FF6D87B1970: 28 E9 BC FF FF FF 00
+[+] Sanity check passed; resuming.
+
+
+```
+
+Strange... They're is no output.
+For a sanity check - I copy the bytes for the *trampoline* and *code cave stub*, go back into *x64dbg* and edit the bytes while broken on the start of the `main` function.
+
+![image-20251215234603563](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215234603563.png)
+
+I then resume program execution.
+
+![image-20251215234648478](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215234648478.png)
+
+We get somewhat of the expected output. I realize here that the `jmp` out of the *code cave* is going to the wrong address. That is why the string was output twice to console. Although, this doesn't seem to clear any confusion with why my *Python* script isn't working. It appears to be doing the same exact byte code manipulation that I just saw working.
+
+To fix the return bug I adjust `RETURN_RVA` from `0x11932` to `0x11937`. This should land us on the correct return address now. As for the reason it's not executing correctly through *Python*, I am unsure of.
 
 
 
+##### 8.2.4.1 Who is Ready to Make Some Bugs
 
-
+I realize I am breaking the *Win64 Calling Convention* by doing `sub rsp, 0x28` inside the *code cave*. I remove the bytes I added for the `add` and `sub` instructions. The *prologue* to `main` already allocates *shadow space* (`0x20`) and fixes alignment. So at at the *code cave* `RSP` is already in the correct state for calls.
 
 
 
