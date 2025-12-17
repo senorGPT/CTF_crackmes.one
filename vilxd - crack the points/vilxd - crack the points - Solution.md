@@ -3,7 +3,7 @@
 **Challenge link:** https://crackmes.one/crackme/690fa2f12d267f28f69b7c44  
 **Author:** *vilxd*  
 **Write-up by:** *SenorGPT*  
-**Tools used:** *CFF Explorer*, *x64dbg*
+**Tools used:** *CFF Explorer*, *x64dbg*, *Ghidra*
 
 | Platform | Difficulty | Quality | Arch | Language |
 |---|---|---|---|---|
@@ -13,7 +13,7 @@
 
 ## <center><img src="C:\Users\david\Desktop\crackmes.one\vilxd - crack the points\cover.png" alt="cover" style="zoom:45%;" /></center>
 
-> **Status:** WIP  
+> **Status:** Complete  
 > **Goal:** Document a clean path from initial recon → locating key-check logic → validation/reversal strategy 
 
 ---
