@@ -213,7 +213,8 @@ def main(exe: Path) -> int:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Simple trainer for point-cracker.exe (Windows)")
     parser.add_argument("--exe", default=EXE_PATH, help="Path to target EXE")
-    parser.add_argument("--edx", type=lambda x: int(x, 0), default=EDX_VALUE, help="EDX value to pass to printf (%d). Supports 0x..")
+    # NOTE: argparse help strings treat '%' as printf-style interpolation; escape it as '%%'.
+    parser.add_argument("--edx", type=lambda x: int(x, 0), default=EDX_VALUE, help="EDX value to pass to printf (%%d). Supports 0x..")
     parser.add_argument("--quiet", action="store_true", help="Disable normal logging output")
     args = parser.parse_args()
 
