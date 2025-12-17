@@ -331,6 +331,8 @@ Sanity check completed successfully!
 
 Let's get to programming the trainer.
 
+In reverse-engineering / game hacking, a *trainer* is a small helper program that *attaches to (or launches)* a target process and modifies its memory at runtime to change behaviour without permanently changing the executable on disk.
+
 ```python
 """
 Minimal Windows trainer for `point-cracker.exe`.
@@ -557,17 +559,23 @@ To fix this I thought I have to copy the bytes proceeding the `xor edx, edx` (`3
 
 #### 8.2.3 Code Cave Johnson
 
-This presents an ideal time to implement a code cave. (EXPLAIN WHAT A CODE CAVE IS HERE)
+This presents an ideal time to implement a code cave. For those that are unaware of what a code cave is, here is a quick explanation. A *code cave* is a chunk of unused or padding space inside a program’s executable memory - often a run of `NOP`s or leftover bytes - that you can repurpose to place your own instructions.
 
-Right after the `main` function there appears to be some usable space.
+In practice, you:
+
+1. *Overwrite* a few bytes at the original code location with a `jmp` to the cave - called a “*trampoline*”.
+2. Run your *custom code* inside the cave
+3. *Jump back* to the original code flow right after the bytes you overwrote.
+
+Let's get started! Right after the `main` function there appears to be some usable space.
 
 ![image-20251215062012817](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215062012817.png)
 
 I decide to use the space right after that lone `jmp` instruction (`0x7FF6D87B1955`). Since we already have an offset to the `xor` instruction - `0x11929` - we just need to increment that offset by `0x2C` (`0x00007FF6D87B1955` - `0x00007FF6D87B1929`), which gives us the result `0x11955` (`0x11929` + `0x2C`).
 
-This is where ***AGAIN*** I realize something. the `jmp` instruction is too *5-bytes* long, so regardless if I use `mov` or `jmp` I will still have the same problem.
+This is ***AGAIN*** where I realize something. the `jmp` instruction is *5-bytes* long too. So regardless if I use `mov` or `jmp` I will still have the same problem.
 
-After doing some research, I get a better grasp of what I need to do.
+After doing some research, I get a better grasp and understanding of what needs to be done.
 Here the layout of the `main` function is shown.
 
 ```
@@ -578,7 +586,7 @@ Here the layout of the `main` function is shown.
 140011932  E8 A9 FC FE FF         call printf           ; 5 bytes
 ```
 
-The sizes of both the instructions I tried to use `mov edx, imm32` (`BA xx xx xx xx`) and `jmp rel32` (`E9 xx xx xx xx`) are both *5-bytes* long. So when trying to assemble either `mov edx,99` or `jmp cave` at the address where `xor edx, edx` used to be, my *Python* script writes *5-bytes* starting at `0x140011929`. Those *5-bytes* overwrite the *2-bytes* of `xor` (`31 D2`) ***PLUS*** the first *3-bytes* of the following `lea` instruction (`48 8D 0D`).
+The sizes of both the instructions I tried to use `mov edx, imm32` (`BA xx xx xx xx`) and `jmp rel32` (`E9 xx xx xx xx`) are both *5-bytes* long. When trying to assemble either `mov edx,99` or `jmp cave` at the address where `xor edx, edx` used to be, my *Python* script writes *5-bytes* starting at `0x140011929`. Those *5-bytes* overwrite the *2-bytes* of `xor` (`31 D2`) ***PLUS*** the first *3-bytes* of the following `lea` instruction (`48 8D 0D`).
 
 To fix this, after placing in our `jmp` instruction we `NOP` out the remaining *4-bytes*. The logic will look like:
 
@@ -625,7 +633,7 @@ Execution now flows:
 
 #### 8.2.4 Science Isn’t About Why - It’s About This Code Cave
 
-With my new found knowledge, I get to work making life take the lemons back!
+With my new found knowledge I get to work *making life take the lemons back*!
 
 Some helper functions to make life a bit more simple:
 
@@ -649,7 +657,7 @@ def call_rel32(src: int, dst: int) -> bytes:
 
 
 
-I begin with creating the byte code for the assembly I am going to be patching in, starting with the *trampoline* - the `jmp` instruction into the code cave.
+I begin with creating the byte code for the assembly I am going to be patching in. Starting with the *trampoline* - the `jmp` instruction into the code cave.
 
 ```python
 PATCH_CAVE = 0x11955 								# offset to where the code cave will be located
@@ -797,81 +805,38 @@ $ py ./simple_trainer.py
 
 ```
 
-Strange... They're is no output.
-For a sanity check - I copy the bytes for the *trampoline* and *code cave stub*, go back into *x64dbg* and edit the bytes while broken on the start of the `main` function.
+Strange... There is no output.
+For a sanity check - I copy the bytes for the *trampoline* and the *code cave stub*  into *x64dbg*, editing the bytes while broken on the start of the `main` function.
 
 ![image-20251215234603563](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215234603563.png)
 
-I then resume program execution.
+I then resume program execution - from *x64dbg*.
 
 ![image-20251215234648478](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215234648478.png)
 
-We get somewhat of the expected output. I realize here that the `jmp` out of the *code cave* is going to the wrong address. That is why the string was output twice to console. Although, this doesn't seem to clear any confusion with why my *Python* script isn't working. It appears to be doing the same exact byte code manipulation that I just saw working.
+We get somewhat of the expected output. I realize here that the `jmp` out of the *code cave* is going to the wrong address. That is why the string was output twice to console. Although, this doesn't seem to clear any confusion with why my *Python* script isn't working. It appears to be doing the same exact byte code manipulation that I ***just saw working***.
 
-To fix the return bug I adjust `RETURN_RVA` from `0x11932` to `0x11937`. This should land us on the correct return address now. As for the reason it's not executing correctly through *Python*, I am unsure of.
+To fix the return bug I adjust `RETURN_RVA` from `0x11932` to `0x11937`. This should land us on the correct return address now. As for the reason it's not executing correctly when ran through my *Python* trainer, I am unsure of.
 
 
 
 ##### 8.2.4.1 Who is Ready to Make Some Bugs
 
-I realize I am breaking the *Win64 Calling Convention* by doing `sub rsp, 0x28` inside the *code cave*. I remove the bytes I added for the `add` and `sub` instructions. The *prologue* to `main` already allocates *shadow space* (`0x20`) and fixes alignment. So at at the *code cave* `RSP` is already in the correct state for calls.
+I realize I am breaking the *Win64 Calling Convention* by doing `sub rsp, 0x28` inside the *code cave*. I remove the bytes I added for the `add` and `sub` instructions. The *prologue* to `main` already allocates *shadow space* (`0x20`) and fixes alignment. So at the *code cave* `RSP` is already in the correct state for calls.
 
-After a LOT of debugging, testing, and failing. I finally get the result I want. I was having SO MANY issues because of the memory space that I chose and I did not understand that it looked clear but it was actually data, possible an address that was being loaded. The worst part was that when I would load the bytes provided by my pyton script into x64dbg i would see it functioning correctly.
+After a ***LOT*** of debugging, testing, and failure I finally get the result I want. I was having issue after issue due to the memory space that I selected for my code cave. I thought that the space I had chosen for the *code cave* was free and not being used. After much debugging it seemed that it was holding some kind of data, maybe a pointer. It could be an address that is being loaded during runtime which would explain
 
-```bash
-$ py ./simple_trainer.py 
-[+] PID:        6744
-[+] ImageBase:   0x00007FF6D87A0000
-[+] PatchSite:   RVA 0x11929 -> VA 0x00007FF6D87B1929
-[+] CodeCave:    VA  0x00007FF6D87C0000  (VirtualAllocEx)
-[+] Return:      RVA 0x11937 -> VA 0x00007FF6D87B1937
-[+] FormatStr:   RVA 0x13000 -> VA 0x00007FF6D87B3000
-[+] PrintF:      RVA 0x15E0  -> VA 0x00007FF6D87A15E0
-[+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
-    0x00007FF6D87B1920: 48 83 EC 28 E8 1E FE FE FF 31 D2 48 8D 0D CE 16
-    0x00007FF6D87B1930: 00 00 E8 A9 FC FE FF 48 8D 0D DA 16 00 00 E8 ED
-    0x00007FF6D87B1940: FC FE FF 31 C0 48
-[?] .data Flag Byte:  b'\x00'
-[+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
-    0x00007FF6D87B1920: 48 83 EC 28 E8 1E FE FE FF E9 D2 E6 00 00 90 90
-    0x00007FF6D87B1930: 90 90 E8 A9 FC FE FF 48 8D 0D DA 16 00 00 E8 ED
-    0x00007FF6D87B1940: FC FE FF 31 C0 48
-[+] Trampoline (9 bytes):
-[+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
-    0x00007FF6D87B1920: 48 83 EC 28 E8 1E FE FE FF E9 D2 E6 00 00 90 90
-    0x00007FF6D87B1930: 90 90 E8 A9 FC FE FF 48 8D 0D DA 16 00 00 E8 ED
-    0x00007FF6D87B1940: FC FE FF 31 C0 48
-[+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
-    0x00007FF6D87B1920: 48 83 EC 28 E8 1E FE FE FF E9 D2 E6 00 00 90 90
-    0x00007FF6D87B1930: 90 90 E8 A9 FC FE FF 48 8D 0D DA 16 00 00 E8 ED
-[+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
-    0x00007FF6D87B1920: 48 83 EC 28 E8 1E FE FE FF E9 D2 E6 00 00 90 90
-[+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
-[+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
-    0x00007FF6D87B1920: 48 83 EC 28 E8 1E FE FE FF E9 D2 E6 00 00 90 90
-    0x00007FF6D87B1930: 90 90 E8 A9 FC FE FF 48 8D 0D DA 16 00 00 E8 ED
-    0x00007FF6D87B1940: FC FE FF 31 C0 48
-[+] Trampoline (9 bytes):
-    Old: 31 D2 48 8D 0D CE 16 00 00
-    New: E9 D2 E6 00 00 90 90 90 90
-[+] CodeCave Stub (25 bytes):
-    Old: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-    New: BA 63 00 00 00 48 B9 00 30 7B D8 F6 7F 00 00 E8 CC 15 FE FF E9 1E 19 FF FF
-[+] Resuming.
-Your count points is 99
-```
+I figured this out because whenever I would ***ONLY*** patch the `xor` instruction in `main` there would be no problem. BUT, if I added the code cave itself it would never even get to the `main` instruction. It seemed to crashed before ever hitting it.
 
-Patching in x64dbg worked because the program was already initialized and the debugger can mask memory-protection issues. My trainer patched a process before initialization; after resume, the loader’s final page protections made my chosen ‘flag byte’ non-writable at runtime, so the cave’s `mov [addr],1` crashed with `0xC0000005`. Allocating memory with `VirtualAllocEx` fixed it by providing a guaranteed writable region that isn’t affected by PE section protections.
+The worst part during debugging was that when I would modify the bytes - with the bytes provided by my *Python* script - within *x64dbg* I would see the functionality that I was expecting. I believe this is because the memory space I was overwriting was used during some start-up sequence. So when I modified the memory space with execution paused on the start of `main` it had no effect.
 
+Patching in *x64dbg* worked because the program was already initialized and the debugger can mask memory-protection issues. My trainer patched a process before initialization. Allocating memory with `VirtualAllocEx` fixed it by providing a guaranteed writable region that isn’t affected by *PE* section protections.
 
-
-Old approach (“code cave at RVA 0x11955”): you were overwriting bytes inside the module’s .text section assuming they were padding. Your dumps show that region likely contains real data embedded in code (e.g., a pointer-looking qword), so overwriting it can break unrelated logic and cause 0xC0000005 crashes before your trampoline ever runs.
+Old approach - code cave at RVA `0x11955` was overwriting bytes inside the module’s `.text` section assuming they were padding. This caused a break in unrelated logic and would error out `0xC0000005` before the trampoline ever ran.
 
 New approach (“real cave via VirtualAllocEx”): you place your stub in a fresh, private RWX page owned by the process. You’re no longer corrupting the module’s code/data, so the only behavior change should be the one you intentionally introduced (the trampoline jump).
 
-VirtualQueryEx
-
-**“Tell me what’s already there.”**
+VirtualQueryEx = **“Tell me what’s already there.”**
  It *doesn’t change memory*. It just **inspects** a region in the remote process and returns info like:
 
 - base address of the region
@@ -887,9 +852,7 @@ Use it when you want to answer:
 
 That’s how you diagnose why `mov byte ptr [rax], 1` might crash with `0xC0000005`.
 
-VirtualAllocEx
-
-**“Give me new memory.”**
+VirtualAllocEx = **“Give me new memory.”**
  It *does change memory*. It **allocates** memory inside the remote process, and you can choose the protection.
 
 Use it when you want:
@@ -922,13 +885,97 @@ Tiny rule of thumb
 
 
 
+Finally, the moment I have been waiting for!
+
+```bash
+$ py ./simple_trainer.py 
+[+] PID:         27512
+[+] ImageBase:   0x00007FF6D87A0000
+[+] PatchSite:   RVA 0x11929 -> VA 0x00007FF6D87B1929
+[+] CodeCave:    VA  0x00007FF6D87C0000  (VirtualAllocEx)
+[+] Return:      RVA 0x11937 -> VA 0x00007FF6D87B1937
+[+] FormatStr:   RVA 0x13000 -> VA 0x00007FF6D87B3000
+[+] PrintF:      RVA 0x15E0  -> VA 0x00007FF6D87A15E0
+[+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
+    0x00007FF6D87B1920: 48 83 EC 28 E8 1E FE FE FF 31 D2 48 8D 0D CE 16
+    0x00007FF6D87B1930: 00 00 E8 A9 FC FE FF 48 8D 0D DA 16 00 00 E8 ED
+    0x00007FF6D87B1940: FC FE FF 31 C0 48
+[+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
+    0x00007FF6D87B1920: 48 83 EC 28 E8 1E FE FE FF E9 D2 E6 00 00 90 90
+    0x00007FF6D87B1930: 90 90 E8 A9 FC FE FF 48 8D 0D DA 16 00 00 E8 ED
+    0x00007FF6D87B1940: FC FE FF 31 C0 48
+[+] Trampoline (9 bytes):
+    Old: 31 D2 48 8D 0D CE 16 00 00
+    New: E9 D2 E6 00 00 90 90 90 90
+[+] CodeCave Stub (25 bytes):
+    Old: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    New: BA 63 00 00 00 48 B9 00 30 7B D8 F6 7F 00 00 E8 CC 15 FE FF E9 1E 19 FF FF
+[+] Resuming.
+Your count points is 99
+```
+
+
+
+Time to clean up the code and extend it's functionality a little bit. All *Python* files will be included alongside the solution write up. In the *trainerlib* folder you will find a few helper files I have created. `trainer.py` houses the new version that accepts dynamic input, while `simple_trainer.py` is a more bare bones example.
+
+Running `trainer.py`:
+
+- ```bash
+  py ./trainer.py --edx 1337
+  ```
+
+  - ```bash
+    $ py ./trainer.py --edx 1337
+    [+] PID:         27480
+    [+] ImageBase:   0x00007FF6D87A0000
+    [+] PatchSite:   RVA 0x11929 -> VA 0x00007FF6D87B1929
+    [+] CodeCave:    VA  0x00007FF6D87C0000  (VirtualAllocEx)
+    [+] Return:      RVA 0x11937 -> VA 0x00007FF6D87B1937
+    [+] FormatStr:   RVA 0x13000 -> VA 0x00007FF6D87B3000
+    [+] PrintF:      RVA 0x15E0  -> VA 0x00007FF6D87A15E0
+    [+] EDX_VALUE:   1337
+    [+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
+        0x00007FF6D87B1920: 48 83 EC 28 E8 1E FE FE FF 31 D2 48 8D 0D CE 16
+        0x00007FF6D87B1930: 00 00 E8 A9 FC FE FF 48 8D 0D DA 16 00 00 E8 ED
+        0x00007FF6D87B1940: FC FE FF 31 C0 48
+    [+] Dumping bytes: base+0x11920 -> base+0x11945 (38 bytes)
+        0x00007FF6D87B1920: 48 83 EC 28 E8 1E FE FE FF E9 D2 E6 00 00 90 90
+        0x00007FF6D87B1930: 90 90 E8 A9 FC FE FF 48 8D 0D DA 16 00 00 E8 ED
+        0x00007FF6D87B1940: FC FE FF 31 C0 48
+    [+] Trampoline (9 bytes):
+        Old: 31 D2 48 8D 0D CE 16 00 00
+        New: E9 D2 E6 00 00 90 90 90 90
+    [+] CodeCave Stub (25 bytes):
+        Old: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+        New: BA 39 05 00 00 48 B9 00 30 7B D8 F6 7F 00 00 E8 CC 15 FE FF E9 1E 19 FF FF
+    [+] Resuming.
+    Your count points is 1337
+    ```
+
+- ```bash
+  py ./trainer.py --edx 53110 --quiet
+  ```
+
+  - ```bash
+    $ py ./trainer.py --edx 53110 --quiet
+    Your count points is 53110
+    ```
+
+Ranges that can be *encoded* - `0x0` to `0xFFFFFFFF` (*32-bit*). Which means that the highest number that the points can be is `2,147,483,647` as it is being interpreted as a *signed 32-bit integer*. If it was an *unsigned 32-bit integer*, the highest value would have been `4,294,967,295`.
+
+![image-20251217055139992](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251217055139992.png)
+
+Anything above this number will cause the integer to overflow and become negative.
+
+![image-20251217055425779](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251217055425779.png)
+
 
 
 ---
 
 ## 9. Conclusion
 
-At first I assumed this meant there would be a hidden “correct” points value and some validation logic inside the binary. I therefore started looking for comparisons, success/fail messages, and any functions using the `POINTS` global.
+When I first started this challenge I assumed that this challenge would be a hidden “correct” points value and some validation logic inside the binary. I therefore started looking for comparisons, success/fail messages, and any functions using the `POINTS` global.
 
 After fully enumerating the functions in Ghidra and inspecting the entry point (`mainCRTStartup`), `__tmainCRTStartup`, and `main`, I found that the only user code is:
 
