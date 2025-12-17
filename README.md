@@ -37,6 +37,18 @@ crackmes.one/
 </details>
 
 <details>
+<summary><b>zsombii - Easy crackme</b> | Difficulty: 1.0/6.0</summary>
+
+- **Difficulty**: 1.0/6.0
+- **Author**: zsombii
+- **Status**: ✅ Solved
+- **Solution**: See `zsombii - Easy crackme/zsombii - Easy crackme - Solution.pdf`
+- **Description**: Java `.jar` crackme. Using JADX, I recovered `checkValidity()` which scores the 10-character key by counting how many characters satisfy `(ch & 3) == 0` (i.e., ASCII divisible by 4). A key is valid if the score is exactly 4. I also wrote a small Python keygen in `zsombii - Easy crackme/solution/` to generate valid keys.
+- **Date Solved**: 2025-12-17
+
+</details>
+
+<details>
 <summary><b>illusionxxx - simple crackme</b> | Difficulty: 1.5/6.0</summary>
 
 - **Difficulty**: 1.5/6.0
