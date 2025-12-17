@@ -10,14 +10,16 @@ This repository contains a collection of crackme challenges that I've solved, al
 
 ```
 crackmes.one/
-├── [challenge-name]/
-│   ├── binary/              # Executable and required DLLs
-│   ├── flag.txt             # The solution flag
-│   ├── zip-password.txt     # Password for the original challenge zip
-│   ├── [challenge].zip      # Original challenge archive
-│   ├── [challenge] - Solution.pdf  # Detailed solution write-up
-│   └── [author]'s [challenge].url  # Shortcut link to challenge page
-└── README.md
+├── [challenge-name]/            # One folder per crackme
+│   ├── binary/                  # Executable and required DLLs
+│   ├── flag.txt                 # The solution flag (if applicable)
+│   ├── zip-password.txt         # Password for the original crackmes.one zip
+│   ├── [id].zip                 # Original crackme archive (crackmes.one id)
+│   ├── cover.png                # Challenge cover (when available)
+│   ├── [challenge] - Solution.pdf|md  # Solution write-up
+│   ├── [author]'s [challenge].url     # Shortcut link to crackmes.one page
+│   ├── patched/                 # Patched binaries (when applicable)
+│   └── solution/                # Scripts/tools (keygen, bruteforce, trainer, etc.)
 ```
 
 ## 🎯 Challenges
@@ -43,6 +45,18 @@ crackmes.one/
 - **Solution**: See `illusionxxx - simple crackme/illusionxxx - simple crackme - Solution.pdf`
 - **Description**: Used x64dbg to follow the string references and the main comparison loop, then analyzed the function that transforms user input. The crackme encodes the input with a per-byte XOR where the key is the length of the string, and compares it to the constant l?xo\r0e`. Reversing this length-based XOR yields the correct key.
 - **Date Solved**: 2025-11-29
+
+</details>
+
+<details>
+<summary><b>vilxd - crack the points</b> | Difficulty: 2.0/6.0</summary>
+
+- **Difficulty**: 2.0/6.0
+- **Author**: vilxd
+- **Status**: ✅ Solved
+- **Solution**: See `vilxd - crack the points/vilxd - crack the points - Solution.md`
+- **Description**: Patch/trainer-style challenge: the program prints `Your count points is %d` with a hard-coded zeroed value. I located the call site in x64dbg/Ghidra and wrote a Python trainer that launches the process suspended, computes `moduleBase + RVA`, and patches the code to load a user-chosen value into `EDX` before the `printf` call. To make the patch robust, I used a trampoline and an allocated code cave (`VirtualAllocEx`) instead of guessing free space in `.text`.
+- **Date Solved**: 2025-12-17
 
 </details>
 
