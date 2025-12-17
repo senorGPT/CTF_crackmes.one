@@ -26,7 +26,7 @@ def generate_good_and_bad_character_lists(char_range):
 def generate_key(good_characters, bad_characters) -> str:
     rng = random.Random()
     bad_needed = KEY_LENGTH - KEY_TOTAL_VALUE
-    key = rng.sample(good_characters, KEY_TOTAL_VALUE) + rng.sample(bad_characters, bad_needed)
+    key = rng.choices(good_characters, k=KEY_TOTAL_VALUE) + rng.choices(bad_characters, k=bad_needed)
     random.shuffle(key)
     
     return ''.join(key)

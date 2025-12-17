@@ -3,7 +3,7 @@
 **Challenge link:** https://crackmes.one/crackme/693d89b50992a052ab2222d7  
 **Author:** *zsombii*  
 **Write-up by:** *SenorGPT*  
-**Tools used:** *CFF Explorer*, *x64dbg*, *Ghidra*
+**Tools used:** *JADX*
 
 | Platform | Difficulty | Quality | Arch | Language |
 |---|---|---|---|---|
@@ -41,6 +41,7 @@ This document captures my reverse-engineering process for the crackme `Easy crac
 - Outputs: *Thanks for downloading this product. Enter the validation key here to complete, or exit with ENTER:* 
   - Invalid key: *Validation key is invalid*
   - Key length not 10 characters: *Length requirement not met*
+  - No Input: *Exiting...*
 
 
 ### 2.2 Screens
@@ -55,6 +56,8 @@ This document captures my reverse-engineering process for the crackme `Easy crac
 
 ![image-20251217094056674](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251217094056674.png)
 
+![image-20251217114924555](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251217114924555.png)
+
 
 
 ---
@@ -62,13 +65,11 @@ This document captures my reverse-engineering process for the crackme `Easy crac
 ## 3. Tooling & Environment
 
 - OS: *Windows 11*
-- Debugger: *x64dbg*
-- Decompiler: *Ghidra*
-- Static tools: *CFF Explorer*, *Ghidra*, *JADX*
+- Static tools: *JADX*
 
-During initial recon of this crackme, it became clear to me that my current kit will not be sufficient enough to handle this task. I start looking into Java reverse engineering tools that I can add to my toolbox.
+During initial recon of this crackme, it became clear to me that my current kit (*x64dbg, CFF Explorer*) will not be sufficient enough to handle this task. I start looking into Java reverse engineering tools that I can add to my toolbox.
 
-I come across: *JADX* for triaging and searching, *Recaf* for patching and repacking the `.jar`, and *IntelliJ* for debugging and confirming logic.
+I come across: *JADX* for triaging and searching, *Recaf* for patching and repacking the `.jar`, and *IntelliJ* for debugging and confirming logic. Although, during this crackme I only had to utilize *JADX*.
 
 
 
@@ -82,7 +83,7 @@ Opening the binary within *CFF Explorer* doesn't reveal much information.
 
 
 
-Opening the `.jar` file within JADX provided me with the following source code.
+Opening the `.jar` file within *JADX* provided me with the following source code.
 
 ```java
 package defpackage;
@@ -127,7 +128,7 @@ public class Main {
 }
 ```
 
-It seems that the program loops indefinitely until the user enters an input that is exactly *10* characters long. Otherwise, "*Length requirement not met*" is printed and key input is re-prompted. Once the user enters in a key that is 10 characters long it proceeds to check the validity of that key. If the key is valid, it prints "*Validation key accepted*". Otherwise, on an invalid key, it will print "*Validation key is invalid*".
+It seems that the program loops indefinitely until the user enters an input that is exactly *10* characters long. Otherwise, "*Length requirement not met*" is printed and key input is re-prompted. Once the user enters in a key that is 10 characters long it proceeds to check the validity of that key. If the key is valid, it prints "*Validation key accepted*". Otherwise, on an invalid key, it will print "*Validation key is invalid*". If no key is entered, it will print "*Exiting...*" and terminate execution.
 
 
 
@@ -135,7 +136,7 @@ It seems that the program loops indefinitely until the user enters an input that
 
 ## 5. Dynamic Analysis
 
-*x64dbg* does not support opening `.jar` files. Furthermore, since I was able to extract the source code from the `.jar` file using *JADX*, there was no need for dynamic analysis.
+*x64dbg* does not support opening `.jar` files. Furthermore, since I was able to extract the source code from the `.jar` file using *JADX*, there was no need for dynamic analysis. Although, it is important to keep in mind that decompilers can lie under obfuscation and runtime debugging (*IntelliJ* / *JDWP*) is how to confirm what actually executes.
 
 
 
@@ -147,16 +148,15 @@ The obvious validity checking function `checkValidity` stood out immediately.
 
 ```java
 public static boolean checkValidity(String key) {
-        int keyPoints = 0;
-        if (key.startsWith("KEY")) {
-            keyPoints = 0 + 0;
-        }
-        for (int i = 0; i < key.length(); i++) {
-            keyPoints += (key.charAt(i) & 3) == 0 ? 1 : 0;
-        }
-        return keyPoints == 4;
+    int keyPoints = 0;
+    if (key.startsWith("KEY")) {
+        keyPoints = 0 + 0;
     }
-
+    for (int i = 0; i < key.length(); i++) {
+        keyPoints += (key.charAt(i) & 3) == 0 ? 1 : 0;
+    }
+    return keyPoints == 4;
+}
 ```
 
 `keyPoints` is effectively a *score counter*. During the loop it increments by *1* each time a character meets the bitmask condition, and the key is considered valid only if the total score is *exactly 4* once all characters have been processed.
@@ -182,6 +182,14 @@ $$
 n = 4q + r \quad \text{where } r \in \{0,1,2,3\}
 $$
 
+
+If we take the character `$`, it's *ASCII* decimal value is *36*. Which in binary is `0010 0100`. Since the last two bits are *0* we know that this character will increment the points counter.
+Lets also take another character; `!` which has an *ASCII* decimal value of 33, which in binary is `0010 0001`. The last bit is a *1* which means that this character will ***NOT*** increment the points counter.
+Let's put this to the test by taking 4 `$` and combining it with 6 `!` characters - order doesn't matter: `$$$$!!!!!!` and plugging it into the *Portable Executable* (*PE*).
+
+![image-20251217113809826](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251217113809826.png)
+
+As proven, any combination of the aforementioned would result in a valid key.
 
 
 
@@ -295,7 +303,7 @@ This is the standard printable *ASCII* set (`32` to `126`). Basically letters, d
 
 ## 8. Challenging Myself
 
-Since this crackme essentially exposed it's source code, reverse engineering it wasn't too difficult challenge. To add some difficulty, I thought it would be neat to create a Python script that would generate a bunch of valid keys.
+Since this crackme essentially exposed it's source code, reverse engineering it wasn't too difficult of a challenge. To increase the difficulty, I thought it would be neat to create a *Python* script that would generate a valid keys - a *keygen*.
 
 Rewriting the validation function in *Python*:
 
@@ -317,17 +325,17 @@ This will loop over the numbers *32* to *127* (exclusive), convert it to a chara
 
 ![ASCII Table](https://www.asciitable.com/asciifull.gif)
 
-I next create two lists from this `printable_ascii` string. One with *good characters*, characters that will increment the counter by *one*. And one with *bad characters*, characters that will ***NOT*** increment the counter.
-This is done by looping over each character within `printable_ascii` and performing the validation check on it - could also perform a modulo 4. If the character passes the check, it gets added to the good character list and vice versa.
+I next create two lists from this `printable_ascii` string. One with *good characters - characters that will increment the counter by *one*. And one with *bad characters - characters that will ***NOT*** increment the counter.
+This is done by looping over each character within `printable_ascii` and performing the validation check on it (could also perform a modulo 4). If the character passes the check, it gets added to the good character list and vice versa.
 
 ```python
 def generate_good_and_bad_character_lists(char_range):
     good_characters, bad_characters = [], []
-    for chr in char_range:
-        if (ord(chr) & 4) == 0:
-            good_characters.append(chr)
+    for ch in char_range:
+        if (ord(ch) & 3) == 0:
+            good_characters.append(ch)
             continue
-        bad_characters.append(chr)
+        bad_characters.append(ch)
     
     return good_characters, bad_characters
 ```
@@ -399,7 +407,15 @@ $ py ./keygen.py
 
 ![image-20251217111413875](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251217111413875.png)
 
-Success! I then proceeded to update the script to accept command line arguements.
+Success!
+I then proceeded to update the script to accept command line arguements as well as have the ability to generate multiple keys at once.
+
+
+
+## 8.1 Afterthoughts
+
+Currently the *keygen* implementation generates the character samples with `rng.sample(...)` which picks *unique* characters - no repeats. But, the crackme logic allows repeats. There’s no all characters must be unique rule or validation logic.
+A better choice here would be to use `random.choices()` so repeats are allowed. This doesn’t change correctness, but it makes the *keygen* logically match the validator.
 
 
 
@@ -407,7 +423,7 @@ Success! I then proceeded to update the script to accept command line arguements
 
 ## 9. Conclusion
 
-This was a nice and simple keygen exercise that added new tools to my kit as well as given me experience with one, *JADX*. There are also a lot of possible correct keys. For normal keyboard printable *ASCII* there are ***95*** characters (ASCII *32–126*).
+This was a nice and simple *keygen* exercise that added new tools to my kit as well as give me experience with one, *JADX*. Due to the nature of the validation function, the possibilities for valid keys is quite enormous. For normal keyboard printable *ASCII* there are ***95*** characters (ASCII *32–126*).
 
 - g = *24 are divisible by 4*
 - b = *71 are NOT divisible by 4*
@@ -418,3 +434,7 @@ $$
 $$
 
 ≈ **8.93 × 10¹⁸** valid keys. Which equates to `8,925,125,957,616,476,160` total number of possible valid keys.
+
+This crackme was a great exercise in recognizing when my usual native *RE* workflow doesn’t apply and switching toolchains appropriately. Once *JADX* produced readable *Java*, the entire challenge collapsed into a single scoring rule: for a *10*-character key, exactly *4* characters must have an *ASCII* value divisible by *4* (IE: the last two bits are `00`). Everything else in the function is either boilerplate or deliberate noise (the `startsWith("KEY")` branch is dead code and has no effect on the result).
+
+Even though this one didn’t require runtime debugging, it reinforced an important habit: treat decompiler output as a *hypothesis* until proven, and keep tools like *IntelliJ/JDWP* in the back pocket for cases where obfuscation or control-flow tricks make the decompile unreliable. To push the challenge further, I implemented a *Python* key generator that mirrors the validator and can produce valid keys on demand, which also helped validate my understanding of the bitmask/modulo relationship.
