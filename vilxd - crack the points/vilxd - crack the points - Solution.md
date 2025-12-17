@@ -24,14 +24,15 @@
 
 ## 1. Executive Summary
 
-This document captures my reverse-engineering process for the crackme `crack the points` by `vilxd`. The target appears to be a simple command line process that prompts the user for a password.
+This document captures my reverse-engineering process for the crackme `crack the points` by `vilxd`. The target is a tiny console program that prints a points value and reads an integer from stdin, but never uses that input to affect the printed output.
 
 I successfully:
 
 - Performed basic static reconnaissance.
 - Surveyed imports. Confirmed there appears to be ***NO*** anti-debugging measures.
-- Tried to locate strings associated with console outputs.
-  - TODO
+-  Used a string-driven entry approach (searching for the console format string) to land directly in the print path.
+- Confirmed the “points” output is not derived from user input at all, it is hard-coded to 0 right before the `printf` call.
+- Identified the intended solve as a “poke/patch” style challenge: make the program print points > 0 by modifying the argument passed into `printf` (register edit, patch, or runtime trainer).
 
 
 
@@ -76,9 +77,9 @@ I successfully:
 ![image-20251213020825651](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251213020825651.png)
 
 Notes:
-- Architecture:
-- Compiler hints:
-- Packing/obfuscation signs:
+- Architecture: **PE32+** (*64-bit / x86-64*). Ghidra’s default image base of `0x140000000` and the calling convention behaviour observed in *x64dbg* both align with a *64-bit* Windows build.
+- Compiler hints: *Standard Windows CRT start up* is present (`mainCRTStartup` / *CRT* init calling into user `main`). The presence of `__main` and optimized helper naming like `printf.constprop.0` suggests a typical optimizing toolchain (often *MSVC* or *MinGW-w64* builds with CRT glue).
+- Packing/obfuscation signs: None observed. Entry-point inspection showed normal *CRT* `init` and a straight call into `main` with no custom stubs, no strange section behavior, and no import-hiding tricks.
 
 
 
@@ -87,9 +88,9 @@ Notes:
 ![image-20251213020857175](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251213020857175.png)
 
 Hypotheses:
-- File I/O?
-- Crypto?
-- Anti-debug?
+- File I/O - Unlikely. Behaviour is limited to console input/output; no evidence of file reads/writes.
+- Crypto - None indicated. No crypto-related imports or “hash/encode” style strings showed up in the import surface.
+- Anti-debug - None observed. No classic anti-debug imports (e.g., `IsDebuggerPresent`, `CheckRemoteDebuggerPresent`, `NtQueryInformationProcess` used for debug flags), and dynamic runs did not show anti-debug behaviour.
 
 
 
@@ -127,16 +128,16 @@ Double clicking on the string reference for "*Your count points is %d*" brings m
 
 ![image-20251213025954546](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251213025954546.png)
 
-I trace the logic out of the function and land within what appears to be the `main` function?
+I trace the logic out of the function and land within what appears to be the `main` function.
 
 ![image-20251213031207130](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251213031207130.png)
 
-Restarting program execution and going back into that first function I notice that after the second `call` instruction the string is output to console. I proceed to step into that `call` instruction.
+Restarting program execution and going back into that first function I notice that after the second `call` instruction, the string is output to console. I proceed to step into that second `call` instruction.
 
 ![image-20251213030159338](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251213030159338.png)
 
-Tracing the input logic by stepping through yields little to no results. For some reason, being difficult to find the comparison logic ***EVEN THOUGH*** the `main` function logic seems simple.
-I believe this has to do with the hidden trickery that might be going on behind the scenes.
+Tracing the input logic by stepping through yields little to no results. For some reason being difficult to find the comparison logic ***EVEN THOUGH*** the `main` function logic seems simple.
+I believe this has to do with hidden trickery that might be going on behind the scenes.
 
 
 
@@ -168,29 +169,27 @@ Once again targeting the `Your count points is %d` string. Double clicking it br
 
 ![image-20251215001210481](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215001210481.png)
 
-On the right in green text we can see three *cross references* (*XREFS*); `1400001e4`, `printf.constprop.0:14000160c`, and `main:14001192b`. Focusing on the `main` reference, I double click it which brings me to the function logic. My assumption from earlier was correct regarding the `main` function logic,  this assembly matches that of the assembly discovered within [x64dbg](###5.2 String Driven-Entry). Albeit, with some more information thanks to *Ghidra*.
+On the right in green text we can see three *cross references* (*XREFS*); `1400001e4`, `printf.constprop.0:14000160c`, and `main:14001192b`. Focusing on the `main` reference, I double click it which brings me to the `main` function logic. My assumption from earlier was correct regarding the `main` function logic,  this assembly matches that of the assembly discovered within [x64dbg](###5.2 String Driven-Entry). Albeit, with some more information thanks to *Ghidra*.
 
 ![image-20251215004802416](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215004802416.png)
 
-One of *Ghidra's* superpowers is that it comes with a built-in *decompiler* which turns the *assembly* into *C-like pseudo code*. *Clicking on the `main` function* - *Window* - *Decompile: main*; This opens open a window with the pseudo code.
+One of *Ghidra's* superpowers is that it comes with a built-in *decompiler* which turns the *assembly* into *C-like pseudo code*. *Clicking on the `main` function* - *Window* - *Decompile: main*; This opens a window with the pseudo code.
 
 ![image-20251215005714226](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215005714226.png)
 
-This makes it clear that `DAT_140013018` represents the `points`. Let's go ahead and rename it. *Right clicking `DAT_140013018`* - *Edit Label*; I change it to `POINTS`. Now with a more human readable name, it should be a easier to spot and trace when looking at the assembly / pseudo code.
+This makes it clear that `DAT_140013018` represents the `points`. Let's go ahead and rename it. *Right clicking `DAT_140013018`* - *Edit Label*; I change it to `POINTS`. Now with a more human readable name, it should be a easier to spot and trace when looking at the assembly and pseudo code.
 The `main` function just prints the prompt, reads an integer into a global, and exits.
 
 *Right clicking `POINTS`* - *References* - *Show References* to Points (shortcut: *CTRL + SHIFT + F*); Opens a window with all references to the `POINTS` variable.
 
 ![image-20251215010845947](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215010845947.png)
 
-The second reference `LEA _Argc, [POINTS]` is the instruction from the `main` function we just came from so I ignore it. Clicking on the first reference brings us into another function, which again we aren't seeing for the first time- the wrapper around the `scanf` function.
+The second reference, `LEA _Argc, [POINTS]` is the instruction from the `main` function we just came from so I ignore it. Clicking on the first reference brings us into another function, which again we aren't seeing for the first time - it's the wrapper around the `scanf` function.
 
 ![image-20251215014932508](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215014932508.png)
 
- 
-
-The confusion from earlier is more clear here. The only two references to the global `POINTS` variable are from the `main` and `scanf` functions. This begs the question, ***where is the comparison logic?***
-I am starting to wonder if there is another function that is *indirectly* accessing the `POINTS` variable or utilizing a *return value* from some kind of helper/wrapper function.
+The confusion from earlier becomes more clear here. The only two references to the global `POINTS` variable are from the `main` and `scanf` functions. This begs the question, ***where is the comparison logic?***
+I am starting to wonder if there is another function that is *indirectly* accessing the `POINTS` variable or utilizing a *return value* from some kind of *helper/wrapper* function.
 
 
 
@@ -222,8 +221,6 @@ This is a ***patching / poke-the-variable*** challenge and not a ***find-the-cor
 - *“Use a debugger or hex editor to make the program show points > 0.”*
 - Any way you achieve that (editing the global, patching `printf`, changing the string) is considered a “*solve*”.
 
-
-
 With that in mind I head back to *x64dbg*.
 
 
@@ -250,7 +247,7 @@ So according to *Winx64 Calling Convection*; `RCX` == `%d` and `RDX` == `&POINTS
 
 ![image-20251215040442754](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215040442754.png)
 
-With that in mind. what we want is the address within `RDX` as that is the variable that is being used with `%d`. *BUT*, the problem here is that `RDX` will be dynamic - IE, on the next subsequent run it will not be `000001BC238A0000` but point to a different address.
+With that in mind what we want is the address within `RDX` as that is the variable that is being used with the format string `%d`. *BUT*, the problem here is that `RDX` will be dynamic - IE, on the next subsequent run it will not be `000001BC238A0000` but point to a different address.
 
 ![image-20251215040656935](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215040656935.png)
 
@@ -262,7 +259,8 @@ Going back to *Ghidra*, I double click on the `POINTS` variable which brings me 
 
 ![image-20251215041453302](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215041453302.png)
 
-I can see that the address of `POINTS` is `0x140013018`. *Ghidra’s* addresses start the image at **`0x140000000`**. So `0x140013018` is `0x13018` bytes *after* the image base. That `0x13018` is the *Relative Virtual Address* (*RVA*). *Address Space Layout Randomization* (*ASLR*) will move the whole module at runtime, but the *RVA* stays constant. So we can treat `0x13018` as the static offset to the read-only data.
+I can see that the address of `POINTS` is `0x140013018`. *Ghidra’s* addresses start the image at **`0x140000000`**. So `0x140013018` is `0x13018` bytes *after* the image base (`0x140013018` - `0x140000000` = `0x13018`). That `0x13018` is the *Relative Virtual Address* (*RVA*). 
+*Address Space Layout Randomization* (*ASLR*) will move the whole module at runtime, but the *RVA* stays constant. So we can treat `0x13018` as the static offset to the read-only data.
 
 This is where I realize I have made a mistake. I was mixing up things from *x64dbg* and *Ghidra*. The address above in *Ghidra* is the format string, not the actual `POINTS` variable. That’s why it lives in `.rdata` and is read-only. I have been chasing another red-herring.
 
@@ -271,11 +269,11 @@ Going back into the `main` function within *Ghidra*, I finally notice it. There 
 
 ![image-20251215043724589](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215043724589.png)
 
-Toggling a breakpoint on the `printf` call within *x64dbg* I confirm that `0` is indeed the value being passed in.
+Toggling a breakpoint on the `printf` call within *x64dbg* I confirm that `0` is indeed the value being passed in - `RDX` = `0x0000000000000000`.
 
 ![image-20251215044047046](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215044047046.png)
 
-Modifying `RDX` during execution to `0x99` (153):
+Modifying `RDX` during execution to `0x99` - decimal 153:
 
 ![image-20251215044148408](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215044148408.png)
 
@@ -299,16 +297,16 @@ Since I assume patching is allowed for this *crackme*. Simply modifying the `pri
 
 ![image-20251215044953879](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215044953879.png)
 
-Alternatively, instead of patching the `printf` wrapper, one could patch the `xor edx, edx` instruction within `main`. As that is the value that is being passed through.
+Alternatively, instead of patching the `printf` wrapper, one could patch the `xor edx, edx` instruction within `main`. As that is the value that is being passed through to the string formatter `%d`.
 
 ![image-20251215045559637](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215045559637.png)
 
 
 
-### 8.2 Pushing my Learning
+### 8.2 Pushing my Learning - Making a Trainer
 
-As much fun as I had chasing my own tail this entire challenge, I thought the solution was quite boring.
-So I challenged myself to make a simple *Python* script that would request a number from the user, load the *CTF* executable, suspend it upon entry, modify the appropriate bytes in memory, resume execution, and have it display correctly.
+As much fun as I had chasing my own tail this entire challenge, I thought the solution was quite ***boring***.
+So I challenged myself to make a *Python* script that would request a number from the user, load the *CTF* executable, suspend it upon entry, modify the appropriate bytes in memory, resume execution, and have it display correctly. A proper ***trainer***.
 
 Now that sounds like a fun challenge! First thing is first, I need to obtain a static offset to the `xor` instruction within `main`.
 
@@ -329,7 +327,7 @@ Sanity check completed successfully!
 
 #### 8.2.1 Replacing `XOR` with a `MOV`
 
-Let's get to programming the trainer.
+Let's get to programming the ***trainer***.
 
 In reverse-engineering / game hacking, a *trainer* is a small helper program that *attaches to (or launches)* a target process and modifies its memory at runtime to change behaviour without permanently changing the executable on disk.
 
@@ -529,8 +527,9 @@ if __name__ == "__main__":
 And it failed...
 
 I did not fully understand that `mov edx, <x>` is *5-bytes* long whilst `xor edx, edx` is *2-bytes long*. My original thought process was that since `xor edx, edx` in byte-code is `31 D2` and `mov edx, 99` in byte-code is `BA 63` I could just replace those two bytes and it would work.
+I was wrong.
 
-I was wrong. the `mov` instruction is actually encoded as *5-bytes*. Because the instruction being using is `mov edx, 99`. In *x86-64*, the encoding for `mov r32, imm32` is `B8 + r   <imm32>`.
+The `mov` instruction is actually encoded as *5-bytes*. Because the instruction being using is `mov edx, 99`. In *x86-64*, the encoding for `mov r32, imm32` is `B8 + r   <imm32>`.
 
 - `B8` is the base opcode for `mov r32, imm32`.
 - `r` is the register number - 0 = `EAX`, 1 = `ECX`, 2 = `EDX`, etc.
@@ -550,9 +549,9 @@ That’s why the instruction is 5 bytes total. *1-byte* opcode (`BA`) + *4-byte*
 
 #### 8.2.2 Copying the Rest
 
-To fix this I thought I have to copy the bytes proceeding the `xor edx, edx` (`31 D2`) all the way to the `ret` instruction (`48 8D 0D CE 16 00 00 E8 A9 FC FE FF 48 8D 0D DA 16 00 00 E8 ED FC FE FF 31 C0 48 83 C4 28 C3`) and insert them after my newly added `mov` instruction. ***BUT***, this also would not work. The file already has a fixed sequence of bytes. There is no *free space* between instructions. The bytes for `lea` and `call` are *immediately* after `xor`. If I just insert the extra bytes everything after will move down. This would cause issues:
+To fix this I thought I just had to copy the bytes proceeding the `xor edx, edx` (`31 D2`) all the way to the `ret` instruction (`48 8D 0D CE 16 00 00 E8 A9 FC FE FF 48 8D 0D DA 16 00 00 E8 ED FC FE FF 31 C0 48 83 C4 28 C3`). Then insert them after my newly added `mov` instruction. ***BUT***, this also would not work. The file already has a fixed sequence of bytes. There is no *free space* between instructions. The bytes for `lea` and `call` are *immediately* after `xor`. If I just insert the extra bytes everything after will move down. This would cause issues:
 
-- `lea rcx, [rip+16CEh]` since its `RIP`-relative displacement is now wrong.
+- `lea rcx, [rip+16CEh]` since its `RIP` relative displacement is now wrong.
 - `call printf` / `call scanf` since they’re relative calls, their offsets are now wrong too.
 
 
@@ -573,9 +572,9 @@ Let's get started! Right after the `main` function there appears to be some usab
 
 I decide to use the space right after that lone `jmp` instruction (`0x7FF6D87B1955`). Since we already have an offset to the `xor` instruction - `0x11929` - we just need to increment that offset by `0x2C` (`0x00007FF6D87B1955` - `0x00007FF6D87B1929`), which gives us the result `0x11955` (`0x11929` + `0x2C`).
 
-This is ***AGAIN*** where I realize something. the `jmp` instruction is *5-bytes* long too. So regardless if I use `mov` or `jmp` I will still have the same problem.
+This is ***AGAIN*** where I realize something. The `jmp` instruction is *5-bytes* long too. So regardless if I use `mov` or `jmp` I will still have the same problem as earlier.
 
-After doing some research, I get a better grasp and understanding of what needs to be done.
+After doing some research, I obtain a better grasp and understanding of what needs to be done.
 Here the layout of the `main` function is shown.
 
 ```
@@ -586,7 +585,7 @@ Here the layout of the `main` function is shown.
 140011932  E8 A9 FC FE FF         call printf           ; 5 bytes
 ```
 
-The sizes of both the instructions I tried to use `mov edx, imm32` (`BA xx xx xx xx`) and `jmp rel32` (`E9 xx xx xx xx`) are both *5-bytes* long. When trying to assemble either `mov edx,99` or `jmp cave` at the address where `xor edx, edx` used to be, my *Python* script writes *5-bytes* starting at `0x140011929`. Those *5-bytes* overwrite the *2-bytes* of `xor` (`31 D2`) ***PLUS*** the first *3-bytes* of the following `lea` instruction (`48 8D 0D`).
+The sizes of both the instructions I tried to use `mov edx, imm32` (`BA xx xx xx xx`) and `jmp rel32` (`E9 xx xx xx xx`) are *5-bytes* long. When trying to assemble either `mov edx,99` or `jmp cave` at the address where `xor edx, edx` used to be, my *Python* script writes *5-bytes* starting at `0x140011929`. Those *5-bytes* overwrite the *2-bytes* of `xor` (`31 D2`) ***PLUS*** the first *3-bytes* of the following `lea` instruction (`48 8D 0D`).
 
 To fix this, after placing in our `jmp` instruction we `NOP` out the remaining *4-bytes*. The logic will look like:
 
@@ -618,7 +617,7 @@ To fix this, after placing in our `jmp` instruction we `NOP` out the remaining *
 140011932  E8 A9 FC FE FF             ; call printf (unchanged)
 ```
 
-The NOPs are just *padding* so the bytes between the `jmp` instruction and the next real instruction are valid instructions even if they’re never hit.
+The NOPs are just *padding* so the bytes between the `jmp` instruction and the next real instruction are valid instructions *even* if they’re *never* hit.
 
 Execution now flows:
 
@@ -635,7 +634,7 @@ Execution now flows:
 
 With my new found knowledge I get to work *making life take the lemons back*!
 
-Some helper functions to make life a bit more simple:
+Some helper functions to make life a bit a little less complicated:
 
 ```python
 def jmp_rel32(src: int, dst: int) -> bytes:
@@ -670,7 +669,6 @@ Continuing on with the code cave. This is where things start to get a little bit
 
 ```python
 # Return after cave: instruction immediately after the 9-byte overwrite.
-# You showed the console-print call at RVA 0x11932, and 0x11929 + 9 == 0x11932.
 RETURN_RVA = 0x11932
 # printf format string RVA ("Your count points is %d").
 PRINTF_FORMAT_RVA = 0x13000
@@ -814,9 +812,10 @@ I then resume program execution - from *x64dbg*.
 
 ![image-20251215234648478](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251215234648478.png)
 
-We get somewhat of the expected output. I realize here that the `jmp` out of the *code cave* is going to the wrong address. That is why the string was output twice to console. Although, this doesn't seem to clear any confusion with why my *Python* script isn't working. It appears to be doing the same exact byte code manipulation that I ***just saw working***.
+We get somewhat of the expected result. I realize here that the `jmp` out of the *code cave* is going to the wrong address. That is why the string was output twice to console. Although, this doesn't seem to clear any confusion with why my *Python* script isn't working. It appears to be doing the same exact byte code manipulation that I ***just saw working***.
 
-To fix the return bug I adjust `RETURN_RVA` from `0x11932` to `0x11937`. This should land us on the correct return address now. As for the reason it's not executing correctly when ran through my *Python* trainer, I am unsure of.
+To fix the return bug I adjust `RETURN_RVA` from `0x11932` to `0x11937`. This should land us on the correct return address now.
+As for the reason it's not executing correctly when ran through my *Python* trainer, I am unsure of.
 
 
 
@@ -826,7 +825,7 @@ I realize I am breaking the *Win64 Calling Convention* by doing `sub rsp, 0x28` 
 
 After a ***LOT*** of debugging, testing, and failure I finally get the result I want. I was having issue after issue due to the memory space that I selected for my code cave. I thought that the space I had chosen for the *code cave* was free and not being used. After much debugging it seemed that it was holding some kind of data, maybe a pointer. It could be an address that is being loaded during runtime which would explain
 
-I figured this out because whenever I would ***ONLY*** patch the `xor` instruction in `main` there would be no problem. BUT, if I added the code cave itself it would never even get to the `main` instruction. It seemed to crashed before ever hitting it.
+I figured this out since whenever I would ***ONLY*** patch the `xor` instruction in `main` there would be no problem. *BUT*, if I added the code cave itself it would never even get to the `main` instruction. It seemed to crashed before ever hitting it.
 
 The worst part during debugging was that when I would modify the bytes - with the bytes provided by my *Python* script - within *x64dbg* I would see the functionality that I was expecting. I believe this is because the memory space I was overwriting was used during some start-up sequence. So when I modified the memory space with execution paused on the start of `main` it had no effect.
 
@@ -834,54 +833,29 @@ Patching in *x64dbg* worked because the program was already initialized and the 
 
 Old approach - code cave at RVA `0x11955` was overwriting bytes inside the module’s `.text` section assuming they were padding. This caused a break in unrelated logic and would error out `0xC0000005` before the trampoline ever ran.
 
-New approach (“real cave via VirtualAllocEx”): you place your stub in a fresh, private RWX page owned by the process. You’re no longer corrupting the module’s code/data, so the only behavior change should be the one you intentionally introduced (the trampoline jump).
+New approach - real code cave via `VirtualAllocEx`: Place the code cave stub in a fresh, private *RWX* page owned by the process. No longer corrupting the module’s code/data, so the only behaviour change should be the one intentionally introduced (the *trampoline* jump).
 
-VirtualQueryEx = **“Tell me what’s already there.”**
- It *doesn’t change memory*. It just **inspects** a region in the remote process and returns info like:
+`VirtualQueryEx` = Tell me what’s already there.
+ It **doesn’t change anything**. It only **inspects** a memory region in the remote process and reports details like:
 
-- base address of the region
-- size of the region
-- state (MEM_COMMIT / MEM_RESERVE / MEM_FREE)
-- protection (PAGE_READWRITE, PAGE_EXECUTE_READ, PAGE_GUARD, etc.)
+- region base address
+- region size
+- state (`MEM_COMMIT` / `MEM_RESERVE` / `MEM_FREE`)
+- protection (`PAGE_READWRITE`, `PAGE_EXECUTE_READ`, `PAGE_GUARD`, `PAGE_NOACCESS`, etc.)
 
-Use it when you want to answer:
+Use it when trying to answer: “Is `addr_flag` actually writable?”, “What memory page does this address live in?”, “Is this address even committed?”.
 
-- “Is `addr_flag` actually writable?”
-- “What page is this address in?”
-- “Is this address even committed memory?”
+`VirtualAllocEx` = Give me new memory.
+ It *does change memory*. It *allocates fresh pages* inside the remote process, and you get to choose protections.
 
-That’s how you diagnose why `mov byte ptr [rax], 1` might crash with `0xC0000005`.
+Use it when you want: a guaranteed *RW* scratch area for a flag byte, a safe buffer for strings / shellcode / *trampolines*, the stop guessing about *RVAs* and section permissions option
 
-VirtualAllocEx = **“Give me new memory.”**
- It *does change memory*. It **allocates** memory inside the remote process, and you can choose the protection.
+Both should be used in this order:
 
-Use it when you want:
-
-- a guaranteed **RW** scratch area for your flag byte
-- a safe buffer for strings, shellcode, etc.
-
-This is the “stop guessing about .data RVAs” option.
-
-------
-
-Which should you use for your situation?
-
-Do both, in this order:
-
-1) Use **VirtualQueryEx** to debug your current `addr_flag`
-
-If it reports not writable (or has GUARD / NOACCESS), your `mov [rax],1` will crash.
-
-2) Use **VirtualAllocEx** to *avoid the problem entirely*
-
-Allocate one RW page, store your flag there, and point your cave at it. This is the most reliable approach.
-
-------
-
-Tiny rule of thumb
-
-- **VirtualQueryEx** = *diagnose / verify* memory properties
-- **VirtualAllocEx** = *create* a safe place to write
+1. `VirtualQueryEx` - *diagnose your current `addr_flag`*
+    If it reports “not writable” (or it has `GUARD` / `NOACCESS`), then your write will crash. No mystery.
+2. `VirtualAllocEx` - *avoid the problem entirely*
+    Allocate a small **RW** page, store the flag there, and point your cave/trampoline at it. This is the “always works” approach.
 
 
 
@@ -914,9 +888,11 @@ $ py ./simple_trainer.py
 Your count points is 99
 ```
 
+Boy, does it feel good!
 
 
-Time to clean up the code and extend it's functionality a little bit. All *Python* files will be included alongside the solution write up. In the *trainerlib* folder you will find a few helper files I have created. `trainer.py` houses the new version that accepts dynamic input, while `simple_trainer.py` is a more bare bones example.
+
+Time to clean up the code and extend it's functionality a bit. All *Python* files will be included alongside the solution write up. In the *trainerlib* folder you will find a few helper files I have created. `trainer.py` houses the new version that accepts command line arguement inputs, while `simple_trainer.py` is a more bare bones example that uses a hard coded value.
 
 Running `trainer.py`:
 
@@ -961,7 +937,7 @@ Running `trainer.py`:
     Your count points is 53110
     ```
 
-Ranges that can be *encoded* - `0x0` to `0xFFFFFFFF` (*32-bit*). Which means that the highest number that the points can be is `2,147,483,647` as it is being interpreted as a *signed 32-bit integer*. If it was an *unsigned 32-bit integer*, the highest value would have been `4,294,967,295`.
+Ranges that can be *encoded*: `0x0` to `0xFFFFFFFF` (*32-bit*). Which means that the highest number that the `points` can be is `2,147,483,647`. This is due to the value being interpreted as a *signed 32-bit integer*. If it was an *unsigned 32-bit integer*, the highest value would have been `4,294,967,295`.
 
 ![image-20251217055139992](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251217055139992.png)
 
@@ -976,6 +952,8 @@ Anything above this number will cause the integer to overflow and become negativ
 ## 9. Conclusion
 
 When I first started this challenge I assumed that this challenge would be a hidden “correct” points value and some validation logic inside the binary. I therefore started looking for comparisons, success/fail messages, and any functions using the `POINTS` global.
+
+**Correction:** The symbol at `0x140013018` is not a global integer at all, it’s the `"Your count points is %d"` *format string* in `.rdata`. Renaming it to something like `PRINTF_FMT` is more accurate. The real “points” value is the integer argument being passed into `printf` (in `EDX`), which is being forced to 0 in `main`.
 
 After fully enumerating the functions in Ghidra and inspecting the entry point (`mainCRTStartup`), `__tmainCRTStartup`, and `main`, I found that the only user code is:
 
@@ -992,9 +970,23 @@ int main(void) {
 
 There are no additional functions that read or compare `POINTS`, no hidden success strings, and no conditional branches based on the user’s input. The program simply prints the current value of a global integer (which starts at 0), reads a new value from stdin, and exits.
 
-Reading the comments on the challenge clarified the author’s intent: the goal is not to discover a secret value, but rather to **manipulate the program or its data so that it reports points greater than zero**. Other solvers achieved this by patching the format string, modifying the immediate value passed to `printf`, or editing the global variable in memory with a debugger.
+Reading the comments on the challenge clarified the author’s intent: the goal is not to discover a secret value, but rather to **manipulate the program or its data so that it reports points greater than zero**.
 
-TODO: something about a simple patch here
+The cleanest “author-intended” solve is to patch the instruction that forces the printed value to 0. In `main`, the program executes `xor edx, edx` immediately before loading the format string and calling `printf`. Since `EDX` is the 2nd argument register on *Win64*, this guarantees the printed number is always 0.
 
-To get a static offset suitable for a trainer, I located the instruction in `main` that zeroed EAX just before calling `printf.constprop.0` (the hard-coded points value). In Ghidra that instruction lives at `0x14001193C` and the module image base is `0x140000000`, so the RVA is `0x1193C`. At runtime I can compute the patch address as `moduleBase + 0x1193C` and overwrite the instruction bytes via `WriteProcessMemory`, replacing `xor eax,eax` with `mov eax, <non-zero value>`.
+To solve it permanently on disk, I replaced that behaviour so `EDX` becomes non-zero before the `printf` call. One approach is:
+- Overwrite the bytes starting at the `xor edx, edx` site with a 5-byte instruction that sets `EDX` to a constant (e.g., `mov edx, 99`),
+- And pad any overwritten leftover bytes with `NOP`s so the next real instruction boundary remains valid.
+
+After patching, the binary consistently prints a `points` value greater than zero without requiring a debugger.
+
+To push my learning, I built a *Python* trainer that launches the process suspended, finds the module base (*ASLR*-safe), and installs a *trampoline* that redirects execution into a custom *code cave* stub.
+
+The main technical lessons were:
+
+- **Instruction size matters:** `xor edx, edx` is 2 bytes, but `mov edx, imm32` and `jmp rel32` are 5 bytes. Writing 5 bytes over a 2-byte instruction will clobber neighboring instructions unless you intentionally pad and/or relocate execution.
+- **RIP-relative code must be treated carefully:** relocating code that uses `RIP` relative addressing (`LEA`/`CALL`/`JMP` patterns) requires recomputing displacements, otherwise it will reference the wrong targets.
+- **Memory timing/protection is real:** my initial “code cave inside the module” assumption was wrong. That region wasn’t safely unused in the way I assumed, and patching *before initialization* caused crashes. Using `VirtualAllocEx` gave me a guaranteed safe RWX region for the stub, which made the trainer reliable.
+
+In the end, I solved the crackme both ways: the straightforward patch (expected) and a fully runtime-based trainer (hard mode). The trainer took longer, but it forced me to internalize *Win64* calling conventions, patch sizing, *trampolines/code caves,* *ASLR*-safe addressing, and real-world memory constraints. Which is exactly the kind of practical knowledge I want from these challenges.
 
