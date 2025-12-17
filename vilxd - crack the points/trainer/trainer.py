@@ -1,453 +1,229 @@
+
 import argparse
-import ctypes
-import ctypes.wintypes as wt
 import struct
 import sys
-import time
 from pathlib import Path
-from typing import Optional
 
-# Some Python builds don't expose ULONG_PTR in ctypes.wintypes
-try:
-    ULONG_PTR = wt.ULONG_PTR  # type: ignore[attr-defined]
-except AttributeError:
-    # Pointer-sized unsigned integer
-    ULONG_PTR = ctypes.c_size_t
+from trainerlib import (
+    K32,
+    alloc_code_cave_near,
+    call_rel32,
+    hex_dump,
+    image_base,
+    jmp_rel32,
+    launch_suspended,
+    read_process_memory,
+    write_process_memory,
+    print_hex,
+    wt,
+)
 
-# Some Python builds don't expose SIZE_T in ctypes.wintypes
-try:
-    SIZE_T = wt.SIZE_T  # type: ignore[attr-defined]
-except AttributeError:
-    SIZE_T = ctypes.c_size_t
+# --- target-specific configuration ---
+# RVAs are relative virtual addresses inside the module (not file offsets).
+EXE_PATH = r"..\binary\point-cracker.exe"  # path to the EXE to run/patch
+EDX_VALUE = 99  # value printed by printf (%d)
 
-# Use WinDLL w/ use_last_error so ctypes.get_last_error() is meaningful
-K32 = ctypes.WinDLL("kernel32", use_last_error=True)
-NTDLL = ctypes.WinDLL("ntdll", use_last_error=True)
-
-
-# Minimal rights needed for patching + verification
-PROCESS_QUERY_INFORMATION = 0x0400
-PROCESS_VM_READ = 0x0010
-PROCESS_VM_WRITE = 0x0020
-PROCESS_VM_OPERATION = 0x0008
-
-CREATE_SUSPENDED = 0x00000004
-
-TH32CS_SNAPPROCESS = 0x00000002
-TH32CS_SNAPMODULE = 0x00000008
-TH32CS_SNAPMODULE32 = 0x00000010
+# Global logging switch (set by CLI)
+QUIET = False
 
 
-class PROCESSENTRY32W(ctypes.Structure):
-    _fields_ = [
-        ("dwSize", wt.DWORD),
-        ("cntUsage", wt.DWORD),
-        ("th32ProcessID", wt.DWORD),
-        ("th32DefaultHeapID", ULONG_PTR),
-        ("th32ModuleID", wt.DWORD),
-        ("cntThreads", wt.DWORD),
-        ("th32ParentProcessID", wt.DWORD),
-        ("pcPriClassBase", ctypes.c_long),
-        ("dwFlags", wt.DWORD),
-        ("szExeFile", wt.WCHAR * wt.MAX_PATH),
-    ]
+def log(*args, **kwargs) -> None:
+    """Console logging controlled by --quiet."""
+    if QUIET:
+        return
+    print(*args, **kwargs)
 
 
-class MODULEENTRY32W(ctypes.Structure):
-    _fields_ = [
-        ("dwSize", wt.DWORD),
-        ("th32ModuleID", wt.DWORD),
-        ("th32ProcessID", wt.DWORD),
-        ("GlblcntUsage", wt.DWORD),
-        ("ProccntUsage", wt.DWORD),
-        ("modBaseAddr", wt.LPBYTE),
-        ("modBaseSize", wt.DWORD),
-        ("hModule", wt.HMODULE),
-        ("szModule", wt.WCHAR * 256),
-        ("szExePath", wt.WCHAR * wt.MAX_PATH),
-    ]
+# All module-relative offsets (RVAs) used by this trainer.
+RVA = {
+    # **patch site**: overwrite 9 bytes with `jmp cave` (5 bytes) + `nop*4`.
+    "patch_site": 0x11929,
+    # NOTE: we no longer hardcode a code cave RVA; we allocate one with VirtualAllocEx.
+    # **return** address after cave: after the 9-byte overwrite.
+    # You showed the console-print call at RVA 0x11932, and 0x11929 + 9 == 0x11932.
+    "return": 0x11937,
+    # **printf format string** RVA ("Your count points is %d").
+    "printf_format": 0x13000,
+    # **printf IAT slot** RVA (slot contains imported function pointer).
+    "printf_iat": 0x15E0,
+    # sanity dump region (inclusive end)
+    "sanity_dump_start": 0x11920,
+    "sanity_dump_end_incl": 0x11976,
+    "sanity_dump_end_main_incl": 0x11945,
+    # 1-byte writable flag in .data (used for quick “did my cave run?” checks)
+    "data_null_byte": 0x12008,
+}
 
 
-def _raise_last_error(prefix: str) -> "None":
-    err = ctypes.get_last_error()
-    if err == 0:
-        # Best-effort fallback; should be rare when using WinDLL(use_last_error=True)
-        try:
-            err = int(K32.GetLastError())
-        except Exception:
-            err = 0
-    raise OSError(err, f"{prefix} failed with WinError {err}: {ctypes.FormatError(err)}")
+def print_comparison(name, old_site, patch):
+    log(f"[+] {name} ({len(patch)} bytes):")
+    log(f"    Old: {print_hex(old_site)}")
+    log(f"    New: {print_hex(patch)}")
 
 
-def find_pid_by_name(exe_name: str) -> Optional[int]:
-    """Return the first PID whose process executable name matches exe_name (case-insensitive)."""
-    snap = K32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
-    if snap == wt.HANDLE(-1).value:
-        _raise_last_error("CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS)")
+def write_and_check_memory(name, hproc, addr, patch, system_exit_code):
+    log(f"[+] Writing {name}...")
+    write_process_memory(hproc, addr, patch)
+    if read_process_memory(hproc, addr, len(patch)) != patch:
+        print("[-] Verify code cave failed", file=sys.stderr)
+        raise SystemExit(system_exit_code)
 
+
+def print_patch_intact(name, patch, hproc, addr, system_exit_code=5):
+    site_now = read_process_memory(hproc, addr, len(patch))
+    ok_site = site_now == patch
+
+    if not ok_site:
+        raise SystemExit(system_exit_code)
+    
+    log(f"[+] PatchSite {name} intact: {ok_site}")
+    if not ok_site:
+        log(f"    Expected: {patch.hex(' ').upper()}")
+        log(f"    Actual:   {site_now.hex(' ').upper()}")
+
+
+def print_dump_bytes(hproc, base, previous_dump: bytes | None = None, dump_rva_start = RVA["sanity_dump_start"], dump_rva_end = RVA["sanity_dump_end_incl"]):
     try:
-        pe = PROCESSENTRY32W()
-        pe.dwSize = ctypes.sizeof(pe)
+        dump_start_va = base + dump_rva_start
+        dump_len = (dump_rva_end - dump_rva_start) + 1
+        dump_bytes = read_process_memory(hproc, dump_start_va, dump_len)
 
-        if not K32.Process32FirstW(snap, ctypes.byref(pe)):
-            _raise_last_error("Process32FirstW")
+        log(
+            f"[+] Dumping bytes: base+0x{dump_rva_start:X} -> base+0x{dump_rva_end:X} ({dump_len} bytes)"
+        )
+        if previous_dump is None:
+            log(hex_dump(dump_bytes, dump_start_va))
+            return dump_bytes
 
-        target = exe_name.lower()
-        while True:
-            if pe.szExeFile.lower() == target:
-                return int(pe.th32ProcessID)
-            if not K32.Process32NextW(snap, ctypes.byref(pe)):
-                break
-        return None
-    finally:
-        K32.CloseHandle(snap)
+        # Compare mode: highlight changed bytes in red (ANSI).
+        red = "\x1b[31m"
+        reset = "\x1b[0m"
+        use_color = sys.stdout.isatty()
+
+        if len(previous_dump) != len(dump_bytes):
+            log(f"[!] Previous dump length differs: {len(previous_dump)} != {len(dump_bytes)} (still diffing what we can)")
+
+        width = 16
+        for off in range(0, len(dump_bytes), width):
+            chunk = dump_bytes[off : off + width]
+            prev_chunk = previous_dump[off : off + width] if off < len(previous_dump) else b""
+
+            parts: list[str] = []
+            for i, b in enumerate(chunk):
+                prev_b = prev_chunk[i] if i < len(prev_chunk) else None
+                is_diff = prev_b is None or b != prev_b
+                hx = f"{b:02X}"
+                if use_color and is_diff:
+                    hx = f"{red}{hx}{reset}"
+                parts.append(hx)
+
+            log(f"    0x{dump_start_va + off:016X}: " + " ".join(parts))
+        
+        return dump_bytes
+
+    except OSError as e:
+        print(f"[-] Sanity check failed: {e}", file=sys.stderr)
+        raise SystemExit(5)
 
 
-def get_module_base(pid: int, module_name: str) -> int:
-    """Return module base address for module_name in process pid."""
-    snap = K32.CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid)
-    if snap == wt.HANDLE(-1).value:
-        _raise_last_error("CreateToolhelp32Snapshot(TH32CS_SNAPMODULE)")
-
+def main_trainer(exe: Path, *, edx_value: int) -> int:
+    pid, hproc, hthread = launch_suspended(exe)
     try:
-        me = MODULEENTRY32W()
-        me.dwSize = ctypes.sizeof(me)
+        base = image_base(hproc)
 
-        if not K32.Module32FirstW(snap, ctypes.byref(me)):
-            _raise_last_error("Module32FirstW")
+        addr          = base + RVA["patch_site"]        # patch site VA
+        addr_flag     = base + RVA["data_null_byte"]    # 1-byte writable flag in .data (your "null byte" spot)
 
-        target = module_name.lower()
-        while True:
-            if me.szModule.lower() == target:
-                return ctypes.cast(me.modBaseAddr, ctypes.c_void_p).value
-            if not K32.Module32NextW(snap, ctypes.byref(me)):
-                break
-        raise FileNotFoundError(f"Module not found in PID {pid}: {module_name!r}")
-    finally:
-        K32.CloseHandle(snap)
+        # Allocate a real code cave (RWX) near the patch site so a rel32 JMP can reach it.
+        # This avoids overwriting "maybe not actually free" bytes inside the module.
+        cave_size = 0x1000
+        addr_cave = alloc_code_cave_near(hproc, addr, cave_size)
+        addr_return   = base + RVA["return"]            # return VA
+        
+        addr_str = base + RVA["printf_format"]  # printf format string VA
+        addr_printf_wrapper = base + RVA["printf_iat"]  # printf IAT slot VA (contains pointer to printf)
 
+        log(f"[+] PID:         {pid}")
+        log(f"[+] ImageBase:   0x{base:016X}")
+        log(f"[+] PatchSite:   RVA 0x{RVA['patch_site']:X} -> VA 0x{addr:016X}")
+        log(f"[+] CodeCave:    VA  0x{addr_cave:016X}  (VirtualAllocEx)")
+        log(f"[+] Return:      RVA 0x{RVA['return']:X} -> VA 0x{addr_return:016X}")
+        log(f"[+] FormatStr:   RVA 0x{RVA['printf_format']:X} -> VA 0x{addr_str:016X}")
+        log(f"[+] PrintF:      RVA 0x{RVA['printf_iat']:X}  -> VA 0x{addr_printf_wrapper:016X}")
+        log(f"[+] EDX_VALUE:   {edx_value}")
+        
+        starting_bytes = print_dump_bytes(
+            hproc, base,
+            dump_rva_start=RVA["sanity_dump_start"],
+            dump_rva_end=RVA["sanity_dump_end_main_incl"],
+        )
 
-def is_wow64_process(hproc: int) -> bool:
-    """Return True if target process is a 32-bit (WOW64) process on 64-bit Windows."""
-    # On 32-bit Windows, IsWow64Process returns FALSE for all processes.
-    is_wow64 = wt.BOOL()
-    ok = K32.IsWow64Process(wt.HANDLE(hproc), ctypes.byref(is_wow64))
-    if not ok:
-        _raise_last_error("IsWow64Process")
-    return bool(is_wow64.value)
+        # Initialize flag = 0 (so we can detect it flipping to 1)
+        write_process_memory(hproc, addr_flag, b"\x00")
 
+        # --- trampoline: overwrite 9 bytes with jmp -> cave + nops ---
+        disp = addr_cave - (addr + 5)
+        if not (-0x8000_0000 <= disp <= 0x7FFF_FFFF):
+            print(f"[-] Allocated cave is out of rel32 range for a 5-byte JMP. disp={disp}", file=sys.stderr)
+            raise SystemExit(10)
+        patch = jmp_rel32(addr, addr_cave) + (b"\x90" * 4)  # 5 + 4 = 9 bytes
 
-class PROCESS_BASIC_INFORMATION(ctypes.Structure):
-    _fields_ = [
-        ("Reserved1", ctypes.c_void_p),
-        ("PebBaseAddress", ctypes.c_void_p),
-        ("Reserved2_0", ctypes.c_void_p),
-        ("Reserved2_1", ctypes.c_void_p),
-        ("UniqueProcessId", ctypes.c_void_p),
-        ("Reserved3", ctypes.c_void_p),
-    ]
+        patch_cave = b"\xBA" + struct.pack("<I", edx_value & 0xFFFFFFFF)  # mov edx, imm32
+        patch_cave += b"\x48\xB9" + struct.pack("<Q", addr_str)  # mov rcx, imm64 (absolute VA)
 
+        # call qword ptr [rip+disp32] to printf IAT (6 bytes)
+        call_addr = addr_cave + len(patch_cave)
+        patch_cave += call_rel32(call_addr, addr_printf_wrapper)
 
-def nt_query_information_process(hproc: int, info_class: int, out_buf, out_len: int) -> None:
-    """
-    Wrapper for NtQueryInformationProcess.
-    Raises on non-zero NTSTATUS.
-    """
-    return_len = wt.ULONG()
-    status = NTDLL.NtQueryInformationProcess(
-        wt.HANDLE(hproc),
-        wt.ULONG(info_class),
-        ctypes.byref(out_buf),
-        wt.ULONG(out_len),
-        ctypes.byref(return_len),
-    )
-    if int(status) != 0:
-        raise OSError(int(status), f"NtQueryInformationProcess({info_class}) failed with NTSTATUS 0x{int(status):08X}")
+        # jmp back to original flow (5 bytes)
+        jmp_back_addr = addr_cave + len(patch_cave)
+        patch_cave += jmp_rel32(jmp_back_addr, addr_return)
 
+        old_site = read_process_memory(hproc, addr, len(patch))
+        old_cave = read_process_memory(hproc, addr_cave, len(patch_cave))
 
-def get_main_image_base_via_peb(hproc: int) -> int:
-    """
-    Get the main module ImageBaseAddress by reading the remote PEB.
-    Works well for CREATE_SUSPENDED processes (no module snapshot needed).
-    """
-    wow64 = is_wow64_process(hproc)
+        # --- write cave first, then arm trampoline ---
+        write_process_memory(hproc, addr_cave, patch_cave)
+        write_process_memory(hproc, addr, patch)
 
-    if wow64:
-        # ProcessWow64Information (26) returns the 32-bit PEB address for WOW64 processes.
-        peb32 = ctypes.c_void_p()
-        nt_query_information_process(hproc, 26, peb32, ctypes.sizeof(peb32))
-        peb32_addr = int(peb32.value or 0)
-        if peb32_addr == 0:
-            raise OSError("ProcessWow64Information returned NULL PEB32")
-        # PEB32.ImageBaseAddress offset = 0x08, pointer is 32-bit
-        data = read_memory(hproc, peb32_addr + 0x08, 4)
-        (image_base,) = struct.unpack("<I", data)
-        return int(image_base)
+        print_dump_bytes(
+            hproc, base,
+            previous_dump=starting_bytes,
+            dump_rva_start=RVA["sanity_dump_start"],
+            dump_rva_end=RVA["sanity_dump_end_main_incl"],
+        )
 
-    # Non-WOW64 (native 64-bit) process:
-    pbi = PROCESS_BASIC_INFORMATION()
-    nt_query_information_process(hproc, 0, pbi, ctypes.sizeof(pbi))  # ProcessBasicInformation
-    peb_addr = int(pbi.PebBaseAddress or 0)
-    if peb_addr == 0:
-        raise OSError("ProcessBasicInformation returned NULL PEB")
-    # PEB.ImageBaseAddress offset = 0x10 in PEB64, pointer is 64-bit
-    data = read_memory(hproc, peb_addr + 0x10, 8)
-    (image_base,) = struct.unpack("<Q", data)
-    return int(image_base)
+        print_comparison("Trampoline", old_site, patch)
+        print_comparison("CodeCave Stub", old_cave, patch_cave)
 
-
-def get_module_base_with_retry(pid: int, module_name: str, *, retries: int = 20, delay_s: float = 0.05) -> int:
-    """
-    Toolhelp module snapshots can fail transiently (especially right after CREATE_SUSPENDED).
-    Retry a bit before giving up.
-    """
-    last_err: Optional[BaseException] = None
-    for _ in range(retries):
-        try:
-            return get_module_base(pid, module_name)
-        except OSError as e:
-            last_err = e
-            # ERROR_PARTIAL_COPY (299) can show up in bitness mismatch cases, but also transiently.
-            time.sleep(delay_s)
-    assert last_err is not None
-    raise last_err
-
-
-def read_memory(hproc: int, addr: int, size: int) -> bytes:
-    buf = (ctypes.c_ubyte * size)()
-    read = SIZE_T()
-    ok = K32.ReadProcessMemory(
-        wt.HANDLE(hproc),
-        wt.LPCVOID(addr),
-        ctypes.byref(buf),
-        size,
-        ctypes.byref(read),
-    )
-    if not ok:
-        _raise_last_error("ReadProcessMemory")
-    return bytes(buf[: int(read.value)])
-
-
-def write_memory(hproc: int, addr: int, data: bytes) -> None:
-    written = SIZE_T()
-    ok = K32.WriteProcessMemory(
-        wt.HANDLE(hproc),
-        wt.LPVOID(addr),
-        data,
-        len(data),
-        ctypes.byref(written),
-    )
-    if not ok:
-        _raise_last_error("WriteProcessMemory")
-    if int(written.value) != len(data):
-        raise OSError(f"WriteProcessMemory short write: {int(written.value)}/{len(data)} bytes")
-
-
-class STARTUPINFOW(ctypes.Structure):
-    _fields_ = [
-        ("cb", wt.DWORD),
-        ("lpReserved", wt.LPWSTR),
-        ("lpDesktop", wt.LPWSTR),
-        ("lpTitle", wt.LPWSTR),
-        ("dwX", wt.DWORD),
-        ("dwY", wt.DWORD),
-        ("dwXSize", wt.DWORD),
-        ("dwYSize", wt.DWORD),
-        ("dwXCountChars", wt.DWORD),
-        ("dwYCountChars", wt.DWORD),
-        ("dwFillAttribute", wt.DWORD),
-        ("dwFlags", wt.DWORD),
-        ("wShowWindow", wt.WORD),
-        ("cbReserved2", wt.WORD),
-        ("lpReserved2", ctypes.POINTER(ctypes.c_byte)),
-        ("hStdInput", wt.HANDLE),
-        ("hStdOutput", wt.HANDLE),
-        ("hStdError", wt.HANDLE),
-    ]
-
-
-class PROCESS_INFORMATION(ctypes.Structure):
-    _fields_ = [
-        ("hProcess", wt.HANDLE),
-        ("hThread", wt.HANDLE),
-        ("dwProcessId", wt.DWORD),
-        ("dwThreadId", wt.DWORD),
-    ]
-
-
-def create_process_suspended(exe_path: Path, exe_args: list[str]) -> tuple[int, int, int]:
-    """
-    Create a new process in suspended state.
-    Returns (pid, hProcess, hThread).
-    """
-    # Ensure nice Win32 error handling
-    K32.CreateProcessW.restype = wt.BOOL
-
-    si = STARTUPINFOW()
-    si.cb = ctypes.sizeof(si)
-    pi = PROCESS_INFORMATION()
-
-    # CreateProcessW expects a single mutable command line string.
-    cmdline = f"\"{str(exe_path)}\""
-    if exe_args:
-        cmdline += " " + " ".join(exe_args)
-    cmdline_buf = ctypes.create_unicode_buffer(cmdline)
-
-    ok = K32.CreateProcessW(
-        wt.LPCWSTR(str(exe_path)),  # lpApplicationName
-        cmdline_buf,  # lpCommandLine (mutable)
-        None,  # lpProcessAttributes
-        None,  # lpThreadAttributes
-        False,  # bInheritHandles
-        CREATE_SUSPENDED,  # dwCreationFlags
-        None,  # lpEnvironment
-        None,  # lpCurrentDirectory
-        ctypes.byref(si),
-        ctypes.byref(pi),
-    )
-    if not ok:
-        _raise_last_error("CreateProcessW(CREATE_SUSPENDED)")
-
-    return int(pi.dwProcessId), int(pi.hProcess), int(pi.hThread)
-
-
-def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
-        description="Patch point-cracker.exe either in a running process (PID/name) or by launching a new suspended process."
-    )
-    parser.add_argument("--pid", type=int, help="Target PID (preferred if known).")
-    parser.add_argument("--process", default="point-cracker.exe", help="Process name to search for (default: point-cracker.exe).")
-    parser.add_argument("--exe", type=Path, help="Path to .exe to launch suspended, patch at entry, then resume.")
-    parser.add_argument(
-        "--exe-args",
-        nargs=argparse.REMAINDER,
-        default=[],
-        help="Arguments for --exe (everything after --exe-args). Example: --exe-args -- -v --mode test",
-    )
-    parser.add_argument("--no-resume", action="store_true", help="With --exe: keep the main thread suspended after patching.")
-    parser.add_argument("--module", default="point-cracker.exe", help="Module name to patch (default: point-cracker.exe).")
-    parser.add_argument("--rva", type=lambda x: int(x, 0), default=0x1193C, help="Patch RVA (default: 0x1193C).")
-    parser.add_argument(
-        "--edx",
-        type=lambda x: int(x, 0),
-        help="If set, patch bytes become: mov edx, <value> (x86/x64 opcode BA imm32). Overrides --bytes.",
-    )
-    parser.add_argument(
-        "--bytes",
-        dest="patch_bytes",
-        default="B8 39 05 00 00 90",
-        help="Patch bytes as hex (default: 'B8 39 05 00 00 90' => mov eax,0x539; nop).",
-    )
-    parser.add_argument("--dry-run", action="store_true", help="Only show what would change; do not write.")
-    args = parser.parse_args(argv)
-
-    if args.exe is not None and (args.pid is not None or (args.process and args.process != "point-cracker.exe")):
-        # Not strictly invalid, but ambiguous. Keep it simple.
-        print("[-] Use either --exe OR (--pid/--process), not both.", file=sys.stderr)
-        return 2
-
-    if args.edx is not None:
-        # x86/x64: mov edx, imm32 => BA <imm32 little-endian>
-        patch_bytes = b"\xBA" + struct.pack("<I", args.edx & 0xFFFFFFFF)
-    else:
-        try:
-            patch_bytes = bytes(int(b, 16) for b in args.patch_bytes.split())
-        except ValueError:
-            print("[-] Invalid --bytes. Expected space-separated hex like: 'B8 39 05 00 00 90'", file=sys.stderr)
-            return 2
-
-    # Set return types for handle validity checks
-    K32.OpenProcess.restype = wt.HANDLE
-    K32.CreateToolhelp32Snapshot.restype = wt.HANDLE
-
-    pid: int
-    hproc: int
-    hthread: Optional[int] = None
-    launched_exe_name: Optional[str] = None
-
-    if args.exe is not None:
-        exe_path = args.exe
-        if not exe_path.is_file():
-            print(f"[-] --exe not found: {exe_path}", file=sys.stderr)
-            return 1
-        pid, hproc, hthread = create_process_suspended(exe_path, args.exe_args)
-        launched_exe_name = exe_path.name
-        # If user didn't override module (left default), patch the launched EXE module.
-        if args.module == "point-cracker.exe":
-            args.module = exe_path.name
-        print(f"[+] Launched suspended process: PID {pid}")
-    else:
-        pid = args.pid if args.pid is not None else 0
-        if pid == 0:
-            pid = find_pid_by_name(args.process) or 0
-        if pid == 0:
-            print(f"[-] Could not find process by name: {args.process!r}", file=sys.stderr)
-            return 1
-
-        access = PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION
-        hproc = K32.OpenProcess(access, False, int(pid))
-        if not hproc:
-            _raise_last_error("OpenProcess")
-
-    try:
-        try:
-            module_base = get_module_base_with_retry(int(pid), args.module)
-        except OSError as e:
-            # In --exe mode, if snapshotting modules fails (common in early suspended state),
-            # fall back to reading the main ImageBaseAddress from the PEB (only for the main EXE module).
-            if args.exe is not None and launched_exe_name and args.module.lower() == launched_exe_name.lower():
-                err = getattr(e, "errno", None)
-                print(f"[!] Module snapshot failed ({err}): {e}")
-                print("[!] Falling back to PEB ImageBaseAddress for main module...")
-                module_base = get_main_image_base_via_peb(hproc)
-            else:
-                # Improve guidance for ERROR_PARTIAL_COPY (299)
-                if getattr(e, "errno", None) == 299:
-                    py_bits = ctypes.sizeof(ctypes.c_void_p) * 8
-                    print(
-                        f"[-] WinError 299 (ERROR_PARTIAL_COPY) while enumerating modules.\n"
-                        f"    This is often a 32/64-bit mismatch (Python {py_bits}-bit vs target), or snapshotting too early.\n"
-                        f"    If the target is 32-bit, try running a 32-bit Python. If it is 64-bit, use 64-bit Python.\n"
-                        f"    (In --exe mode, this should usually be handled by retrying; consider increasing retries if needed.)",
-                        file=sys.stderr,
-                    )
-                raise
-        patch_addr = int(module_base) + int(args.rva)
-
-        print(f"[+] PID: {pid}")
-        print(f"[+] Module: {args.module} base = 0x{module_base:016X}")
-        print(f"[+] Patch: RVA 0x{int(args.rva):X} -> VA 0x{patch_addr:016X}")
-        print(f"[+] New bytes ({len(patch_bytes)}): {patch_bytes.hex(' ').upper()}")
-
-        old = read_memory(hproc, patch_addr, len(patch_bytes))
-        print(f"[+] Old bytes ({len(old)}): {old.hex(' ').upper()}")
-
-        if args.dry_run:
-            print("[*] Dry run enabled; not writing.")
-            # If we launched suspended, optionally keep it suspended; otherwise resume by default.
-            if args.exe is not None and hthread and not args.no_resume:
-                K32.ResumeThread(wt.HANDLE(hthread))
-                print("[+] Resumed main thread.")
-            return 0
-
-        write_memory(hproc, patch_addr, patch_bytes)
-        new = read_memory(hproc, patch_addr, len(patch_bytes))
-        if new != patch_bytes:
-            print(f"[-] Verification failed. Read back: {new.hex(' ').upper()}", file=sys.stderr)
-            return 3
-
-        print("[+] Patch applied and verified.")
-
-        if args.exe is not None and hthread and not args.no_resume:
-            K32.ResumeThread(wt.HANDLE(hthread))
-            print("[+] Resumed main thread.")
+        log("[+] Resuming.")
+        K32.ResumeThread(wt.HANDLE(hthread))
 
         return 0
+
     finally:
-        K32.CloseHandle(hproc)
-        if hthread:
-            K32.CloseHandle(wt.HANDLE(hthread))
+        K32.CloseHandle(wt.HANDLE(hthread))
+        K32.CloseHandle(wt.HANDLE(hproc))
+
+
+def main(exe: Path) -> int:
+    return main_trainer(exe, edx_value=EDX_VALUE)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+    parser = argparse.ArgumentParser(description="Simple trainer for point-cracker.exe (Windows)")
+    parser.add_argument("--exe", default=EXE_PATH, help="Path to target EXE")
+    parser.add_argument("--edx", type=lambda x: int(x, 0), default=EDX_VALUE, help="EDX value to pass to printf (%d). Supports 0x..")
+    parser.add_argument("--quiet", action="store_true", help="Disable normal logging output")
+    args = parser.parse_args()
+
+    QUIET = bool(args.quiet)
+    EDX_VALUE = int(args.edx)
+
+    exe = Path(args.exe)
+    if not exe.is_file():
+        print(f"[-] EXE not found: {exe}", file=sys.stderr)
+        raise SystemExit(1)
+
+    raise SystemExit(main(exe))
+
