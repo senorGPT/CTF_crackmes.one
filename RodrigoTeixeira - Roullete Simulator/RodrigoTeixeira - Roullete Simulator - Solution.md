@@ -353,7 +353,12 @@ That hits the “negative notes” victory condition without breaking any of the
 
 ---
 
-## 7. Findings Log
+## 7. Init to Winit
+
+![image-20251219035917652](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251219035917652.png)
+
+Ohh yeah! After confirming that our PRNG prediction *sidekick* is outputting good results, I continue *betting it all* when the sidekick predicts a **win** and only bet *1* when it predicts a **lose**.
+Slowly but surely, with enough wins, the (TODO IS ACTULLAY CALLED THE MOENY VARIABLE?)`money` variable should overflow from `2,147,......` and bring us to a negative.
 
 
 
