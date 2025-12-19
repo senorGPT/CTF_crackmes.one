@@ -1,25 +1,20 @@
-<!--
-Reverse Engineering Write-up Template (Typora-friendly)
-Copy this file and replace placeholders.
--->
-
 # <challenge name> — Reverse Engineering Write-up
 
 **Challenge link:** <url>  
 **Author:** <author>  
-**Write-up by:** <your name/handle>  
+**Write-up by:** *SenorGPT*  
 **Tools used:** <tools>  
 
 | Platform | Difficulty | Quality | Arch | Language |
 |---|---|---|---|---|
-| <platform> | <difficulty> | <quality> | <arch> | <language> |
+| Windows | <difficulty> | <quality> | <arch> | <language> |
 
 ---
 
 ## Cover Snapshot
 
-> **Status:** <WIP / Complete>  
-> **Goal:** <one-sentence objective>  
+> **Status:** Complete  
+> **Goal:** Document a clean path from initial recon → locating key-check logic → validation/reversal strategy  
 
 ---
 
@@ -34,11 +29,13 @@ Briefly describe:
 - Your overall approach.
 - The key outcome so far.
 
+
+
 ---
 
 ## 2. Target Overview
 
-### 2.1 UI / Behavior
+### 2.1 UI / Behaviour
 
 - Inputs:
 - Outputs:
@@ -54,9 +51,7 @@ Briefly describe:
 
 ![][image2]
 
-#### Success case (if known)
 
-![][image3]
 
 ---
 
@@ -66,6 +61,8 @@ Briefly describe:
 - Debugger:
 - Decompiler (if applicable):
 - Static tools:
+
+
 
 ---
 
@@ -89,6 +86,8 @@ Hypotheses:
 - Crypto?
 - Anti-debug?
 
+
+
 ---
 
 ## 5. Dynamic Analysis
@@ -104,51 +103,25 @@ Hypotheses:
 - Message box hooks
 - API logging
 
+
+
 ---
 
 ## 6. Validation Path
 
-### 6.1 Input Acquisition
 
-Where the program reads:
-- Name:
-- Key:
-
-### 6.2 Parsing / Normalization
-
-Document any:
-- string → integer conversions
-- base/encoding expectations
-
-### 6.3 Transformation
-
-List steps in order with pseudocode.
-
-```c
-// pseudocode here
-```
-
-### 6.4 Compare / Branch
-
-Show the critical conditional(s).
 
 ---
 
 ## 7. Patch Notes (If Allowed)
 
-Describe:
-- What you changed (high level).
-- Why it works.
-- How you verified behavior.
+
 
 ---
 
 ## 8. Findings Log
 
-| Step | What I did | What I learned |
-|---|---|---|
-| 1 |  |  |
-| 2 |  |  |
+
 
 ---
 
@@ -158,23 +131,11 @@ Describe:
 - What you’d improve next time.
 - Optional lessons learned.
 
----
 
-## Appendix A — Screenshot Map
-
-```
-./assets/
-  image1.png
-  image2.png
-  image3.png
-  image4.png
-  image5.png
-  image6.png
-```
 
 ---
 
-## Appendix B — Reference Notes
+## Appendix A —  Reference Notes
 
 - Addresses:
 - Breakpoints list:
