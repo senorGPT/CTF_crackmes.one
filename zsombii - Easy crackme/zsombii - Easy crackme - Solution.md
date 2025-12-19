@@ -24,10 +24,13 @@
 
 ## 1. Executive Summary
 
-This document captures my reverse-engineering process for the crackme `Easy crackme` by `zsombii`. The target appears to be a Java binary. My typical tools *CFF Explorer* and *x64dbg* are of no use here.
-- What the binary appears to be.
-- Your overall approach.
-- The key outcome so far.
+This write-up documents my reverse-engineering process for `Easy crackme` by `zsombii`. The target is a Java `.jar`, so my usual native tooling (*CFF Explorer*, *x64dbg*) isn’t the right fit here. This one is all about decompiling *Java* bytecode and reasoning about the validation logic.
+
+Using *JADX*, I recovered readable Java source and immediately identified the input gate: the program loops until the user supplies a key of **exactly 10 characters**, then passes that value into `checkValidity()`. 
+
+The validation itself boils down to a simple scoring rule: `keyPoints` increments once per character when `(char & 3) == 0` (i.e., the character’s ASCII value is divisible by 4), and the key is accepted only when the final score is **exactly 4**. The `startsWith("KEY")` branch is dead code and doesn’t affect the outcome. 
+
+To make the challenge a bit more interesting, I built a small *Python* keygen that mirrors the validator and can generate valid 10-character keys on demand.
 
 
 
