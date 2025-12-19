@@ -49,6 +49,18 @@ crackmes.one/
 </details>
 
 <details>
+<summary><b>NullerF - Easiest</b> | Difficulty: 1.1/6.0</summary>
+
+- **Difficulty**: 1.1/6.0
+- **Author**: NullerF
+- **Status**: ✅ Solved
+- **Solution**: See `NullerF - Easiest/NullerF - Easiest - Solution.pdf`
+- **Description**: Windows x86-64 crackme. Traced string references (e.g., `"Enter PIN:"`) in x64dbg back into `main`, identified the numeric PIN check, and patched/bypassed the failure path to reach the success branch and recover the correct input - 8569.
+- **Date Solved**: 2025-12-19
+
+</details>
+
+<details>
 <summary><b>illusionxxx - simple crackme</b> | Difficulty: 1.5/6.0</summary>
 
 - **Difficulty**: 1.5/6.0
