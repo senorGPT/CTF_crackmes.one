@@ -98,7 +98,7 @@ Running the program provides us with the following information:
 
 ## 4. Static Recon
 
-Upon extracting the file from the `.rar` file it came downloaded in, I noticed that it was just a plain `.class` *Java* file. A `.class` file does not strictly require packaging, but using a `.jar` greatly simplifies execution and ensures the entry point is explicit.
+Upon extracting the files from the `.rar` file from the download, I noticed that it was just a plain `.class` *Java* file. A `.class` file does not strictly require packaging, but using a `.jar` greatly simplifies execution and ensures the entry point is explicit.
 
 This requirement will be met by utilizing the `JDK`. Opening a terminal in the same directory as the `main.class` file I run the following command to convert the `.class` file into a `.jar` file.
 
@@ -112,7 +112,7 @@ jar cfe RouletteSimulator.jar Main Main.class
 
 ![image-20251219012936859](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251219012936859.png)
 
-Success, this build the `.jar` file with no error. Just to be sure I run the newly created `.jar` file with the following command:
+Success, this built the `.jar` file with no error. Just to be sure I run the newly created `.jar` file with the following command:
 
 ```bash
 java -jar ./RouletteSimulator.jar
@@ -126,7 +126,7 @@ Amazing!
 
 ### 4.1 Source Code
 
-My first approach is to start analysing the source code to see if I can see any clear or obvious logical bugs I could exploit. *BUT*, before I get to that, I decide to poke the binary a bit with some [Dynamic Analysis](##5. Dynamic Analysis).
+My first approach is to start analysing the source code to see if I can spot any clear or obvious logical bugs I could exploit. *BUT*, before I get to that, I decide to poke the binary a bit with some [Dynamic Analysis](##5. Dynamic Analysis).
 
 ```java
 // Source code is decompiled from a .class file using FernFlower decompiler (from Intellij IDEA).
@@ -207,7 +207,7 @@ public class Main {
 
 ```
 
-Upon program initialization, it defines a global variable `seed` and assigns it the result of the following operation upon entering `Main`.
+Upon program initialization, the *PE* defines a global variable `seed` and assigns it the result of the following operation upon entering `Main`.
 
 ```java
 this.seed = ((int) System.nanoTime()) & 65535;
@@ -240,8 +240,6 @@ while (i > 0) {
 }
 ```
 
-
-
 Which utilizes its own `rand` method to manipulate the `seed` global.
 
 ```java
@@ -260,7 +258,7 @@ private int rand() {
 
 
 
-After quite some pondering I deduce the following. The balance `i` can never go negative. You either wander around > 0, or eventually hit `i = 0` and exit. So there is no **pure betting strategy** (*Martingale*, etc.) that guarantees `i < 0`. The only way to go negative is **integer overflow**. Recall that the max signed 32-bit int = `2,147,483,647` (= `0x7FFFFFFF`). If `i` and `bet` get large enough they will overflow and enter the win condition.
+After some thought I deduce the following. The balance `i` can never go negative. You either wander around `> 0`, or eventually hit `i = 0` and exit. So there is no **pure betting strategy** (*Martingale*, etc.) that guarantees `i < 0`. The only way to go negative is **integer overflow**. Recall that the max signed 32-bit int = `2,147,483,647` (= `0x7FFFFFFF`). If `i` and `bet` get large enough they will overflow and enter the *win condition*.
 
 
 
@@ -293,7 +291,7 @@ So with those rules, a perfect implementation *never* reaches a negative balance
 
 ## 5. Dynamic Analysis
 
-Before looking at code, I attempt poking it with weird inputs manually:
+Before looking at the source code, I attempt poking it with weird inputs:
 
 - Trying a *positive whole number*.
   ![image-20251219015131312](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251219015131312.png)
@@ -333,7 +331,7 @@ Before looking at code, I attempt poking it with weird inputs manually:
 
 
 
-No immediate weird behaviour was observed. Following this observation, I continue on back to the [Source Code](###4.1 Source Code) in order to attempt to find any bugs within the source code.
+No immediate weird behaviour was observed. Following this observation, I continue on back to the [Source Code](###4.1 Source Code) in order to attempt to find any bugs there.
 
 
 
@@ -345,7 +343,7 @@ So the plan:
 
 1. **Reverse the Pseudorandom Number Generator (*PRNG*) and win/lose mapping**.
 2. **Interact with the *crackme* with small bets**, recording the win/lose pattern.
-3. **Offline, brute-force all *65536* possible seeds** to see which seed(s) produce that exact pattern.
+3. **Offline brute-force all *65536* possible seeds** to see which seed produces that exact pattern.
 4. Once current seed/state is determined, **predict all future win/lose outcomes**.
 5. Use that prediction to:
    - bet **1** when a loss is coming
@@ -440,7 +438,7 @@ def parse_win_lose_string(win_lose_string: str) -> List[bool]:
 
 
 
-Finally, the code to brute force the patterns and match them against the provided by the user.
+Finally, the code to brute force the patterns and match them against the input pattern provided by the user.
 
 ```python
 def find_matching_patterns(win_losses: List[bool]) -> List:
@@ -591,7 +589,6 @@ Enter bet: 12404
 Money: 24808
 Enter bet: 1
 Money: 24807
-Enter bet: 24808
 Enter bet: 24807
 Money: 49614
 Enter bet: 1
@@ -656,7 +653,7 @@ Press Enter to Exit.
 
 ```
 
-After *57* rounds, the trophy is won! With that, the crackme is now solved.
+After *57* rounds, the trophy is won! And with that the crackme is now solved.
 
 
 
