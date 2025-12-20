@@ -24,10 +24,11 @@
 
 ## 1. Executive Summary
 
-The binary seems to be some kind of game, a roulette game.
-- What the binary appears to be.
-- Your overall approach.
-- The key outcome so far.
+This crackme presents itself as a simple European roulette simulator, but its challenge lies entirely beneath the surface. The program initializes a custom *16-bit* pseudorandom number generator (*PRNG*) and allows the player to place bets while attempting to drive their balance into the negative which is the defined “victory” condition.
+
+Under normal roulette odds and the program’s betting constraints, achieving a negative balance is **mathematically impossible** without exploiting implementation flaws. Through static and dynamic analysis, I determined that the balance variable is a *32-bit signed integer* meaning sufficiently large wins can trigger an **integer overflow** into the negative range.
+
+By reverse-engineering the *PRNG* and brute-forcing its *16-bit* seed I was able to predict all future win/loss outcomes. Betting minimally on losses and going all-in on predicted wins causes exponential balance growth, eventually producing a winning overflow without violating the *crackme’s* rules. The challenge ultimately demonstrates the interplay between *RNG* predictability, integer limits, and controlled exploitation.
 
 
 
@@ -52,9 +53,18 @@ Running the program provides us with the following information:
 
 ### 2.1 UI / Behaviour
 
-- Inputs:
-- Outputs:
-- Expected protection level:
+- **Inputs:**
+  - A single integer bet per round
+  - Must satisfy: `1 ≤ bet ≤ current_money`
+  - Any non-integer input triggers the “Please Input a valid *32-bit* integer.” message
+  - Entering `0`, negative values, decimals, floats, or extremely large integers causes the input loop to repeat until valid input is provided
+- **Outputs:**
+  - Displays current money after every round: `Money: <value>`
+  - Displays all rules and restrictions if the user selects “See rules? [Y]es/[N]o”
+  - On hitting exactly **0**, the program immediately exits (failure)
+  - On hitting **negative money**, the program prints the success message:
+     *“Congratulations, you solved the crackme!”*
+  - Win/loss feedback is only inferred via changes in the money value (no explicit win/loss text)
 
 ### 2.2 Screens
 
@@ -68,9 +78,9 @@ Running the program provides us with the following information:
 
 
 
-#### Failure case
+#### Failure case - Exits Once Money Reaches *0*
 
-![][image2]
+![image-20251220024554004](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251220024554004.png)
 
 
 
@@ -88,7 +98,7 @@ Running the program provides us with the following information:
 
 ## 4. Static Recon
 
-Upon extracting the file from the `.rar` file it came downloaded in, I noticed that it was just a plain `.class` *Java* file. This means that it first has to be built into a `.jar` file before we can execute the code.
+Upon extracting the file from the `.rar` file it came downloaded in, I noticed that it was just a plain `.class` *Java* file. A `.class` file does not strictly require packaging, but using a `.jar` greatly simplifies execution and ensures the entry point is explicit.
 
 This requirement will be met by utilizing the `JDK`. Opening a terminal in the same directory as the `main.class` file I run the following command to convert the `.class` file into a `.jar` file.
 
@@ -136,7 +146,7 @@ public class Main {
          System.out.print("See rules? [Y]es/[N]o: ");
          String var2 = var1.nextLine();
          if (!var2.isEmpty() && var2.toLowerCase().charAt(0) == 'y') {
-            System.out.println("\nYou are not allowed to do the following:\n\n1 -> Decompile, alter the code, and recompiling a modified version of the code.\n2 -> Manipulating the system clock in any way ir order to obtain control over the initial RNG seed choice.\n3 -> Using debug RAM watch or any other way to extract the seed value from memory.\n4 -> Using automated tools to automaticly input to this program (exception: manually copy-pasting text).\n\nYou are allowed to do the following:\n\n1 -> Using betting strategies such as martingale or similar.\n2 -> Decompiling and analysing the code in any way. The code is not obfuscated.\nUsing the information that the program gives you at runtime in any way of you likings.");
+            System.out.println("\nYou are not allowed to do the following:\n\n1 -> Decompile, alter the code, and recompiling a modified version of the code.\n2 -> Manipulating the system clock in any way ir order to obtain control over the initial RNG seed choice.\n3 -> Using debug RAM watch or any other way to extract the seed value from memory.\n4 -> Using automated tools to  input to this program (exception: manually copy-pasting text).\n\nYou are allowed to do the following:\n\n1 -> Using betting strategies such as martingale or similar.\n2 -> Decompiling and analysing the code in any way. The code is not obfuscated.\nUsing the information that the program gives you at runtime in any way of you likings.");
          }
 
          int var3 = 100;
@@ -275,7 +285,7 @@ Key observation, **You can’t cross 0 if the code really enforces `b ≤ notes`
 - If `notes > 0` and you lose, new notes = `notes - b ≥ 0`.
 -  If you win, notes stays > 0.
 
- So with those rules, a perfect implementation *never* reaches a negative balance. Therefore, **it’s mathematically impossible to guarantee a negative balance**. That’s the big hint: the “solution” is almost certainly about **finding a bug in the Java code**, not about being clever with Roulette strategies.
+So with those rules, a perfect implementation *never* reaches a negative balance. Therefore, **it’s mathematically impossible to guarantee a negative balance**. That’s the big hint: the “solution” is almost certainly about **finding a bug in the *Java* code**, not about being clever with Roulette strategies.
 
 
 
@@ -333,21 +343,129 @@ No immediate weird behaviour was observed. Following this observation, I continu
 
 So the plan:
 
-1. **Reverse the Pseudorandom Number Generator (PRNG) and win/lose mapping** (we already have the code).
-2. **Interact with the crackme with small bets**, recording the win/lose pattern.
-3. **Offline, brute-force all 65536 possible seeds** to see which seed(s) produce that exact pattern.
-4. Once you know the current seed/state, **predict all future win/lose outcomes**.
+1. **Reverse the Pseudorandom Number Generator (*PRNG*) and win/lose mapping**.
+2. **Interact with the *crackme* with small bets**, recording the win/lose pattern.
+3. **Offline, brute-force all *65536* possible seeds** to see which seed(s) produce that exact pattern.
+4. Once current seed/state is determined, **predict all future win/lose outcomes**.
 5. Use that prediction to:
    - bet **1** when a loss is coming
-   - bet **everything (`i`)** when a win is coming
-      so your money grows ~exponentially.
+   - bet **everything (`i`)** when a win is coming so money grows ~exponentially.
 6. Keep going until `i` gets huge and a predicted win will overflow it past `2,147,483,647` into negative.
 
-That hits the “negative notes” victory condition without breaking any of the author’s rules.
+
+
+I first start by creating two *Java* helper functions in *Python*. These will emulate the *Java* specific behaviour in our *Python* code.
+
+```python
+def to_int32(x: int) -> int:
+    """Emulate Java's 32-bit signed int."""
+    x &= 0xFFFFFFFF
+    if x & 0x80000000:
+        return x - 0x100000000
+    return x
+
+
+def java_urshift(x: int, n: int) -> int:
+    """
+    Emulate Java's >>> (unsigned right shift) on a 32-bit int.
+    """
+    return (x & 0xFFFFFFFF) >> n
+
+```
+
+Then start by emulating the `rand` method and branching logic.
+
+```python
+# PRNG implementation from rand() function
+def java_rand_step(seed: int) -> int:
+    """
+    One step of the Java rand() function given in the crackme:
+
+        seed ^= (seed << 7) & 65535;
+        seed ^= seed >>> 9;
+        seed ^= (seed << 8) & 65535;
+        return seed;
+
+    We emulate it on a 32-bit int, like Java.
+    """
+    seed = to_int32(seed)
+    seed ^= (seed << 7) & 0xFFFF
+    seed = to_int32(seed)
+    seed ^= java_urshift(seed, 9)
+    seed = to_int32(seed)
+    seed ^= (seed << 8) & 0xFFFF
+    seed = to_int32(seed)
+    return seed
+
+
+# Win implementation from inside while loop
+def is_win(seed: int) -> Tuple[int, bool]:
+    """
+    Given current seed, perform one rand() step and
+    return (new_seed, is_win).
+
+    Win condition in the crackme: (rand() % 37) < 18
+    """
+    new_seed = java_rand_step(seed)
+    win = (new_seed % 37) < 18
+    return new_seed, win
+```
+
+Also need to make some *Python* helper functions.
+
+```python
+def win_losses_to_string(win_losses: List[bool]) -> str:
+    """
+    Convert a list of bool `win_losses` to a string representative format with `L` characters for
+    losses and `W` characters for wins.
+    """
+    win_lose_string = ""
+    for _ in win_losses:
+        win_lose_string += "W" if _ else "L"
+    return win_lose_string
+
+
+def parse_win_lose_string(win_lose_string: str) -> List[bool]:
+    """
+    Convert a string like 'WLLW' or 'w l L W' to [True, False, False, True].
+
+    Any character that is not `w` or `W` will be considered a loss
+    """
+    win_losses = []
+    for char in win_lose_string:
+        win_losses.append(True) if char.lower() == 'w' else win_losses.append(False)
+
+    return win_losses
+```
 
 
 
+Finally, the code to brute force the patterns and match them against the provided by the user.
 
+```python
+def find_matching_patterns(win_losses: List[bool]) -> List:
+    found_matches = []
+    rounds_played = len(win_losses)
+
+    for seed in range(0, 65536+1): # inclusive, exclusive
+        current_seed = seed
+        found_match = True
+
+        for i in range(rounds_played):
+            current_seed, has_won = is_win(current_seed)
+            if has_won != win_losses[i]:
+                found_match = False
+                break
+
+        if found_match:
+            found_matches.append([seed, current_seed])
+    
+    return found_matches
+```
+
+
+
+The `main` function in my *Python* code is just *Quality of Life* (*QOL*) code that gets the input and neatly outputs it to the user so I have not included it here.
 
 
 
@@ -357,8 +475,188 @@ That hits the “negative notes” victory condition without breaking any of the
 
 ![image-20251219035917652](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251219035917652.png)
 
-Ohh yeah! After confirming that our PRNG prediction *sidekick* is outputting good results, I continue *betting it all* when the sidekick predicts a **win** and only bet *1* when it predicts a **lose**.
-Slowly but surely, with enough wins, the (TODO IS ACTULLAY CALLED THE MOENY VARIABLE?)`money` variable should overflow from `2,147,......` and bring us to a negative.
+Ohh yeah! After confirming that our *PRNG* prediction *sidekick* is outputting good results, I continue *betting it all* when the sidekick predicts a **win** and only bet *1* when it predicts a **lose**.
+Slowly but surely, with enough wins, the `money` variable should overflow from `2,147,......` and bring us to a negative.
+
+```
+$ java -jar ./RouletteSimulator.jar
+Welcome to this crackme by Rodrigo Teixeira from Portugal.
+
+This is a roullete simulator.
+
+You start with 100 money units and you are considered to
+have beaten the crackme if you get negative money.
+
+If you lose all your money (that is, if you have exactly 0 money units),
+the program automatically closes and you are not considered to having beaten the crackme.
+
+You may bet as much as you want, as long as it is a positive amount
+less than or equal to your current money.
+
+This follows the European Roullete rules, that is, 18/37 chance of doubling the bet,
+and 19/37 chance of losing the bet.
+
+Good luck!
+
+
+See rules? [Y]es/[N]o: n
+
+
+Money: 100
+Enter bet: 1
+Money: 99
+Enter bet: 1
+Money: 98
+Enter bet: 1
+Money: 99
+Enter bet: 1
+Money: 98
+Enter bet: 1
+Money: 99
+Enter bet: 1
+Money: 100
+Enter bet: 1
+Money: 99
+Enter bet: 1
+Money: 100
+Enter bet: 1
+Money: 101
+Enter bet: 1
+Money: 102
+Enter bet: 1
+Money: 101
+Enter bet: 1
+Money: 102
+Enter bet: 1
+Money: 101
+Enter bet: 1
+Money: 102
+Enter bet: 1
+Money: 103
+Enter bet: 1
+Money: 102
+Enter bet: 1
+Money: 101
+Enter bet: 101
+Money: 202
+Enter bet: 1
+Money: 201
+Enter bet: 1
+Money: 200
+Enter bet: 1
+Money: 199
+Enter bet: 1
+Money: 198
+Enter bet: 1
+Money: 197
+Enter bet: 197
+Money: 394
+Enter bet: 1
+Money: 393
+Enter bet: 1
+Money: 392
+Enter bet: 1
+Money: 391
+Enter bet: 1
+Money: 390
+Enter bet: 1
+Money: 389
+Enter bet: 389
+Money: 778
+Enter bet: 1
+Money: 777
+Enter bet: 1
+Money: 776
+Enter bet: 776
+Money: 1552
+Enter bet: 1552
+Money: 3104
+Enter bet: 3104
+Money: 6208
+Enter bet: 1
+Money: 6207
+Enter bet: 1
+Money: 6206
+Enter bet: 1
+Money: 6205
+Enter bet: 1
+Money: 6204
+Enter bet: 1
+Money: 6203
+Enter bet: 1
+Money: 6202
+Enter bet: 6202
+Money: 12404
+Enter bet: 12404
+Money: 24808
+Enter bet: 1
+Money: 24807
+Enter bet: 24808
+Enter bet: 24807
+Money: 49614
+Enter bet: 1
+Money: 49613
+Enter bet: 49613
+Money: 99226
+Enter bet: 1
+Money: 99225
+Enter bet: 99225
+Money: 198450
+Enter bet: 198450
+Money: 396900
+Enter bet: 1
+Money: 396899
+Enter bet: 1
+Money: 396898
+Enter bet: 1
+Money: 396897
+Enter bet: 1
+Money: 396896
+Enter bet: 396896
+Money: 793792
+Enter bet: 1
+Money: 793791
+Enter bet: 793791
+Money: 1587582
+Enter bet: 1
+Money: 1587581
+Enter bet: 1587581
+Money: 3175162
+Enter bet: 3175162
+Money: 6350324
+Enter bet: 6350324
+Money: 12700648
+Enter bet: 12700648
+Money: 25401296
+Enter bet: 25401296
+Money: 50802592
+Enter bet: 1
+Money: 50802591
+Enter bet: 1
+Money: 50802590
+Enter bet: 50802590
+Money: 101605180
+Enter bet: 101605180
+Money: 203210360
+Enter bet: 1
+Money: 203210359
+Enter bet: 203210359
+Money: 406420718
+Enter bet: 1
+Money: 406420717
+Enter bet: 406420717
+Money: 812841434
+Enter bet: 812841434
+Money: 1625682868
+Enter bet: 1625682868
+Money: -1043601560
+Congratulations, you solved the crackme!
+
+Press Enter to Exit.
+
+```
+
+After *57* rounds, the trophy is won! With that, the crackme is now solved.
 
 
 
@@ -366,6 +664,13 @@ Slowly but surely, with enough wins, the (TODO IS ACTULLAY CALLED THE MOENY VARI
 
 ## 8. Conclusion
 
-- Summary of final understanding.
-- What you’d improve next time.
-- Optional lessons learned.
+This *crackme* appears at first glance to challenge the player to beat unfavourable roulette odds, but deeper inspection shows that the intended solution is rooted in reverse engineering, not gambling strategy. Because the program enforces `1 ≤ bet ≤ money`, the balance can never reach a negative value through normal arithmetic. Wins increase the balance, losses decrease it, but neither can cross below zero.
+
+The true weakness lies in two implementation details:
+
+1. A **predictable *16-bit PRNG*** seeded from `System.nanoTime()`, which can be brute-forced using a short sequence of observed outcomes.
+2. A ***32-bit signed integer* balance variable**, which overflows into the negative range once sufficiently large.
+
+By reconstructing the *PRNG*, matching the seed, and forecasting future win/loss outcomes, it becomes possible to bet the minimum on losing rounds and go all-in on winning rounds. This produces exponential growth in the balance until a win causes it to surpass `2,147,483,647`, overflow, and become negative. Satisfying the *crackme’s* victory condition without modifying the code, manipulating the clock, or automating program input.
+
+This challenge reinforces the importance of understanding integer boundaries, implementing secure *RNGs*, and recognizing that even simple logic can become vulnerable when underlying assumptions (like “integers don’t overflow”) are broken.

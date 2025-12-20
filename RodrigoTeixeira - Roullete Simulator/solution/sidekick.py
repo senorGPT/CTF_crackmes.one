@@ -39,6 +39,10 @@ def is_win(seed: int) -> Tuple[int, bool]:
 
 
 def win_losses_to_string(win_losses: List[bool]) -> str:
+    """
+    Convert a list of bool `win_losses` to a string representative format with `L` characters for
+    losses and `W` characters for wins.
+    """
     win_lose_string = ""
     for _ in win_losses:
         win_lose_string += "W" if _ else "L"
@@ -77,8 +81,6 @@ def find_matching_patterns(win_losses: List[bool]) -> List:
     
     return found_matches
 
-# TODO cleanup and refactor
-# LWLLLWLWLLWLLLWWLLWW
 def main(): 
     print(f"[+] Roulette PRNG SideKick")
     print(f"[+] Bet 1 for ~10 Spins and Record the Result of Each Win")
