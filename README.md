@@ -121,6 +121,18 @@ crackmes.one/
 </details>
 
 <details>
+<summary><b>RodrigoTeixeira - Roullete Simulator</b> | Difficulty: 3.0/6.0</summary>
+
+- **Difficulty**: 3.0/6.0
+- **Author**: RodrigoTeixeira
+- **Status**: ✅ Solved
+- **Solution**: See `RodrigoTeixeira - Roullete Simulator/RodrigoTeixeira - Roullete Simulator - Solution.md`
+- **Description**: Java roulette simulator. Decompiled with JADX and recovered a custom 16-bit PRNG used for win/loss. Brute-forced the PRNG seed from observed outcomes to predict future rounds, then used a betting strategy to grow balance until a 32-bit signed integer overflow flips it negative, satisfying the “win” condition.
+- **Date Solved**: 2025-12-20
+
+</details>
+
+<details>
 <summary><b>NemesisX - GuessPassword</b> | Difficulty: 3.5/6.0</summary>
 
 - **Difficulty**: 3.5/6.0
