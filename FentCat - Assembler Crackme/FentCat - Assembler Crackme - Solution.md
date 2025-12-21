@@ -24,12 +24,11 @@
 
 ## 1. Executive Summary
 
-Briefly describe:
-- What the binary appears to be.
-- Your overall approach.
-- The key outcome so far.
+This crackme is a straightforward *x86* Windows console binary written in assembler that asks the user for a password, performs a series of length and content checks, and then either prints “*Welcome :O*” or “*Authentication Failed*”. There are no real packing or heavy anti-debug tricks in play; the “*Warning: System integrity check running...*” message is purely cosmetic, and common debugger APIs such as `IsDebuggerPresent` are not imported.
 
+My approach was to use string references as an entry point into the code, identify the main input/validation logic around `ReadConsoleA`, and then trace the control flow into the comparison function at `0x7310B8`. From there, I analyzed how the program uses global buffers for the input, the length field, and a hardcoded byte table at `crackme.7321DB` to compare the first eight bytes of the user input against a static reference sequence.
 
+The key outcome is that the password check ultimately boils down to an 8-byte memcmp-style loop against the global data at `crackme.7321DB`. The length gate in `main` requires a *7-* or *8-*character input (accounting for the `\r\n` added by `ReadConsoleA`), but the comparison routine always iterates exactly *8 bytes* and only accepts the specific sequence `@CBEDGFI`. This provides a clean and deterministic way to recover the correct password without brute force.
 
 ---
 
@@ -73,18 +72,13 @@ Briefly describe:
 ![image-20251220044621366](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251220044621366.png)
 
 Notes:
-- Architecture:
-- Compiler hints:
-- Packing/obfuscation signs:
+- Architecture: *32-bit x86*, Windows console subsystem.
+- Compiler hints: Small import table and straightforward control flow strongly suggest hand-written assembly or MASM/TASM-style code rather than a high-level language compiler.
+- Packing/obfuscation signs: No section anomalies, no suspicious high-entropy sections, and imports are visible and usable. There are no signs of common packers or obfuscators.
 
 ### 4.2 Imports / Exports
 
 ![image-20251220044636955](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251220044636955.png)
-
-Hypotheses:
-- File I/O?
-- Crypto?
-- Anti-debug?
 
 
 
@@ -108,7 +102,7 @@ Starting the program in *x32dbg* yields no immediate or obvious signs of any ant
 
 ### 5.2 String Driven-Entry
 
-Searching for string references within the target *Portable Executable* (*PE*) yields results the following results.
+Searching for string references within the target *Portable Executable* (*PE*) yields the following results.
 
 ![image-20251220045227480](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251220045227480.png)
 
@@ -120,7 +114,7 @@ These calls seem to be responsible for outputting the string references onto the
 
 ![image-20251220153728279](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251220153728279.png)
 
-The `push` instructions are loading the string reference as a parameter for their following `call` instruction, which I presume is a `printf` call of sort.
+The `push` instructions are loading the string reference as a parameter for their following `call` instruction, which I presume is a `printf` style call of sorts.
 
 The next few `push` instructions are preparing the parameters for the `ReadConsoleA` call.
 
@@ -154,7 +148,7 @@ That means that the user input is being stored in `crackme.7320D9` and the lengt
 
 ## 6. Validation Path
 
-Right after the call to `ReadConsoleA`, the input length is loaded into `EAX` and then compared against `0XA`. At first I thought this call was checking for empty input. After further analysis, I figured out it was actually comparing the user input length from `ReadConsoleA` against `0xA`.
+Right after the call to `ReadConsoleA`, the input length is loaded into `EAX` and then compared against `0xA`. At first I thought this call was checking for empty input. After further analysis, I figured out it was actually comparing the user input length from `ReadConsoleA` against `0xA`.
 
 ![image-20251220191636639](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251220191636639.png)
 
@@ -186,9 +180,7 @@ Adding a breakpoint on that call and stepping into it reveals the following.
 
 ![image-20251220193002312](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251220193002312.png)
 
-At the start of the function, it loads in the user input pointer into `ESI` and a global variable `crackme.7321DB` into `EDI`.
-
-Loading `crackme.7321DB` in the *Dump* reveals the following.
+At the start of the function, it loads in the user input pointer into `ESI` and a global variable `crackme.7321DB` into `EDI`. Loading `crackme.7321DB` in the *Dump* reveals the following.
 
 ```
 007321DB  40 43 42 45 44 47 46 49 32 31 33 35 34 36 38 37  @CBEDGFI21354687  
@@ -202,34 +194,41 @@ Loading `crackme.7321DB` in the *Dump* reveals the following.
 
 ```
 
+The function then proceeds to a loop which does the comparison checks. Checking one character at a time of the user input against the global characters at `crackme.7321DB`.
 
+![image-20251220204116467](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251220204116467.png)
 
----
+Each time the loop iterates, the `ESI` and `EDI` registers increment by 1, which is *1-byte* or *8-bits*. Which means that it is going straight through the character map and not jumping around.
+Therefore, taking either the strings of `@CBEDGFI` or `@CBEDGF` should work.
 
-## 7. Patch Notes (If Allowed)
+Trying `@CBEDGFI`.
 
+![image-20251220204701107](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251220204701107.png)
 
+Trying `@CBEDGFI`.
 
----
+![image-20251220210855336](C:\Users\david\AppData\Roaming\Typora\typora-user-images\image-20251220210855336.png)
 
-## 8. Findings Log
-
-
-
----
-
-## 9. Conclusion
-
-- Summary of final understanding.
-- What you’d improve next time.
-- Optional lessons learned.
+Huh, looking back the comparison check within the `main` function it allowed either *7* or *8* characters to proceed into the validation function. But, the validation function always iterates and checks for 8 characters as indicated by the `mov ecx, 8` instruction.
 
 
 
 ---
 
-## Appendix A —  Reference Notes
+## 7. Conclusion
 
-- Addresses:
-- Breakpoints list:
-- Useful commands:
+This crackme turned out to be a clean example of classic *32-bit* Windows console reversing with hand-written assembly, rather than a heavily protected or obfuscated target. The program sets up console I/O via `GetStdHandle` and `ReadConsoleA`, enforces a simple length gate on the user’s password (allowing only *7-* or *8-*character inputs when accounting for `\r\n`), and then delegates the actual validation to a small comparison function at `0x7310B8`.
+
+Inside that function, the input buffer at `crackme.7320D9` is compared byte-by-byte against a global table at `crackme.7321DB` using a pointer-based loop. Because `ECX` is initialized to *8*, the function always performs eight comparisons and only returns success (`EAX = 1`) when all eight bytes match. Dumping the global table reveals that the first *eight bytes* are `40 43 42 45 44 47 46 49`, which correspond to the ASCII string `@CBEDGFI`. This is the only password that satisfies both the length gate and the comparison logic and results in the “*Welcome :O*” branch.
+
+From a learning standpoint, this challenge was useful for reinforcing several core concepts:
+
+- Understanding how *WinAPI* calls like `ReadConsoleA` use output parameters (`LPBuffer`, `LPDWORD lpNumberOfCharsRead`) and how that influences length checks.
+- Recognizing global/static data (e.g., `crackme.7321DB`) versus stack-based locals or arguments.
+- Reading pointer-based loops (`ESI`/`EDI` plus `inc` + `loop`) as a memcmp-style operation without an explicit index variable.
+- Seeing how a seemingly flexible length check in `main` can still funnel into a strict fixed-length comparison deeper in the call graph.
+
+The final solution is the recovered password:
+
+```text
+@CBEDGFI
