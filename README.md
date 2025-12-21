@@ -85,6 +85,18 @@ crackmes.one/
 </details>
 
 <details>
+<summary><b>FentCat - Assembler Crackme</b> | Difficulty: 2.0/6.0</summary>
+
+- **Difficulty**: 2.0/6.0
+- **Author**: FentCat
+- **Status**: ✅ Solved
+- **Solution**: See `FentCat - Assembler Crackme/FentCat - Assembler Crackme - Solution.md`
+- **Description**: x86 assembler crackme. Traced the password path from `ReadConsoleA` into the validation routine and identified an 8-byte memcmp-style loop against a static byte table. The correct password is the exact 8-byte sequence `@CBEDGFI`.
+- **Date Solved**: 2025-12-20
+
+</details>
+
+<details>
 <summary><b>vilxd - decode me</b> | Difficulty: 2.2/6.0</summary>
 
 - **Difficulty**: 2.2/6.0
