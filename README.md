@@ -97,6 +97,18 @@ crackmes.one/
 </details>
 
 <details>
+<summary><b>sally1337 - StaticAuth</b> | Difficulty: 2.0/6.0</summary>
+
+- **Difficulty**: 2.0/6.0
+- **Author**: sally1337
+- **Status**: ✅ Solved
+- **Solution**: See `sally1337 - StaticAuth/sally1337 - StaticAuth - Solution.md`
+- **Description**: Windows x86-64 “authentication code” crackme solved via static analysis (Binary Ninja HLIL). Recovered the runtime-reconstructed password from lightly obfuscated embedded data; correct code is `goodjob123`.
+- **Date Solved**: 2025-12-24
+
+</details>
+
+<details>
 <summary><b>vilxd - decode me</b> | Difficulty: 2.2/6.0</summary>
 
 - **Difficulty**: 2.2/6.0
