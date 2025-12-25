@@ -2,3 +2,15 @@
 wordlist.txt
 **/wordlist.txt
 
+# IDA database artifacts (scoped to KeyGenMeV4)
+/r00t0 - KeyGenMeV4/binary/*.idb
+/r00t0 - KeyGenMeV4/binary/*.i64
+/r00t0 - KeyGenMeV4/binary/*.id0
+/r00t0 - KeyGenMeV4/binary/*.id1
+/r00t0 - KeyGenMeV4/binary/*.id2
+/r00t0 - KeyGenMeV4/binary/*.id3
+/r00t0 - KeyGenMeV4/binary/*.nam
+/r00t0 - KeyGenMeV4/binary/*.til
+/r00t0 - KeyGenMeV4/binary/*.ida
+/r00t0 - KeyGenMeV4/binary/*.idaproj
+
