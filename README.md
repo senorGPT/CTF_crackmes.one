@@ -73,6 +73,18 @@ crackmes.one/
 </details>
 
 <details>
+<summary><b>lendigs - C++ idk</b> | Difficulty: 1.8/6.0</summary>
+
+- **Difficulty**: 1.8/6.0
+- **Author**: lendigs
+- **Status**: ✅ Solved
+- **Solution**: See `lendigs - C++ idk/lendigs - C++ idk - Solution.md`
+- **Description**: Windows x86-64 C/C++ console crackme. Traced the password-handling path through std::string helpers in x64dbg and found that the apparent stack constant (`a#l67’gdb`) is a decoy; the real key is computed deeper in the transformation flow. Final password: `4v9cbr217`.
+- **Date Solved**: 2025-12-25
+
+</details>
+
+<details>
 <summary><b>vilxd - crack the points</b> | Difficulty: 2.0/6.0</summary>
 
 - **Difficulty**: 2.0/6.0
